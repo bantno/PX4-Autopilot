@@ -50,6 +50,10 @@ case "$model" in
         rascal)
             MODEL_NAME="Rascal110-JSBSim"
             ;;
+        twin_tractor)
+            # Visuals deferred: reuse the Rascal 3D model until a custom .ac/-set.xml exists
+            MODEL_NAME="Rascal110-JSBSim"
+            ;;
         malolo)
             MODEL_NAME="Malolo1"
             ;;
@@ -76,6 +80,7 @@ else
 		--native-fdm=socket,in,60,,5550,udp \
 		--aircraft=$JSBSIM_AIRCRAFT_MODEL \
 		--airport=${world} \
+		--enable-terrasync \
 		--disable-hud \
 		--disable-ai-models &> /dev/null &
 	FGFS_PID=$!
