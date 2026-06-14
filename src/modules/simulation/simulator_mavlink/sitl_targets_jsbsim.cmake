@@ -37,6 +37,7 @@ if(JSBSIM_INCLUDE_DIR)
 		quadrotor_x
 		hexarotor_x
 		malolo
+		twin_tractor
 	)
 
 	set(worlds

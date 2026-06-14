@@ -241,6 +241,10 @@ ControlAllocator::update_effectiveness_source()
 			tmp = new ActuatorEffectivenessFixedWing(this);
 			break;
 
+		case EffectivenessSource::FIXED_WING_DIFF_THRUST:
+			tmp = new ActuatorEffectivenessFixedWingDiffThrust(this);
+			break;
+
 		case EffectivenessSource::MOTORS_6DOF: // just a different UI from MULTIROTOR
 			tmp = new ActuatorEffectivenessUUV(this);
 			break;

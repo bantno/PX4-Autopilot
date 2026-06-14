@@ -7,6 +7,8 @@ px4_add_library(VehicleActuatorEffectiveness
 	ActuatorEffectivenessCustom.hpp
 	ActuatorEffectivenessFixedWing.cpp
 	ActuatorEffectivenessFixedWing.hpp
+	ActuatorEffectivenessFixedWingDiffThrust.cpp
+	ActuatorEffectivenessFixedWingDiffThrust.hpp
 	ActuatorEffectivenessHelicopter.cpp
 	ActuatorEffectivenessHelicopter.hpp
 	ActuatorEffectivenessHelicopterCoaxial.cpp

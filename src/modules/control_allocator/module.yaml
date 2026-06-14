@@ -33,6 +33,7 @@ parameters:
                 13: Rover (Mecanum)
                 14: Spacecraft 2D
                 15: Spacecraft 3D
+                16: Fixed-wing (Diff Thrust)
             default: 0
 
         CA_METHOD:
@@ -47,6 +48,20 @@ parameters:
                 1: Pseudo-inverse with sequential desaturation technique
                 2: Automatic
             default: 2
+
+        # Differential thrust parameters
+        CA_DTHR_SC:
+            description:
+                short: Differential thrust yaw scale
+                long: |
+                  Scales the yaw authority from differential thrust.
+                  Only used with the Fixed-wing (Diff Thrust) airframe type (CA_AIRFRAME=16).
+                  Higher values give stronger yaw response from differential motor speed.
+            type: float
+            decimal: 2
+            min: 0.0
+            max: 10.0
+            default: 1.0
 
         # Motor parameters
         CA_R_REV:
@@ -1251,3 +1266,41 @@ mixer:
                             function: 'axisz'
                           - name: 'CA_ROTOR${i}_CT'
                             label: "Thrust\nCoefficient"
+
+            16: # Fixed-wing (Diff Thrust)
+                title: 'Fixed-wing (Diff Thrust)'
+                actuators:
+                  - actuator_type: 'motor'
+                    group_label: 'Motors'
+                    count: 'CA_ROTOR_COUNT'
+                    per_item_parameters:
+                        standard:
+                            position: [ 'CA_ROTOR${i}_PX', 'CA_ROTOR${i}_PY', 'CA_ROTOR${i}_PZ' ]
+                  - actuator_type: 'servo'
+                    group_label: 'Control Surfaces'
+                    count: 'CA_SV_CS_COUNT'
+                    per_item_parameters:
+                        extra:
+                          - name: 'CA_SV_CS${i}_TYPE'
+                            label: 'Type'
+                            function: 'type'
+                            identifier: 'servo-type'
+                          - name: 'CA_SV_CS${i}_TRQ_R'
+                            label: 'Roll Torque'
+                            identifier: 'servo-torque-roll'
+                          - name: 'CA_SV_CS${i}_TRQ_P'
+                            label: 'Pitch Torque'
+                            identifier: 'servo-torque-pitch'
+                          - name: 'CA_SV_CS${i}_TRQ_Y'
+                            label: 'Yaw Torque'
+                            identifier: 'servo-torque-yaw'
+                          - name: 'CA_SV_CS${i}_TRIM'
+                            label: 'Trim'
+                          - name: 'CA_SV_CS${i}_FLAP'
+                            label: 'Flaps Scale'
+                            advanced: true
+                            identifier: 'servo-scale-flap'
+                          - name: 'CA_SV_CS${i}_SPOIL'
+                            label: 'Spoiler Scale'
+                            advanced: true
+                            identifier: 'servo-scale-spoiler'
