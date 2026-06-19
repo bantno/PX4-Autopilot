@@ -1,0 +1,5 @@
+menuconfig DRIVERS_ENCODER_AS5600
+	bool "as5600"
+	default n
+	---help---
+		Enable support for the AMS AS5600 12-bit magnetic rotary encoder (I2C).

@@ -1,0 +1,126 @@
+/****************************************************************************
+ *
+ *   Copyright (c) 2026 PX4 Development Team. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in
+ *    the documentation and/or other materials provided with the
+ *    distribution.
+ * 3. Neither the name PX4 nor the names of its contributors may be
+ *    used to endorse or promote products derived from this software
+ *    without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
+ * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
+ * AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+ * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *
+ ****************************************************************************/
+
+/**
+ * @file SunTracker.hpp
+ *
+ * Sun-tracking tilt-wing controller.
+ *
+ * Computes the sun direction from GPS position + UTC time, expresses it in the body frame
+ * using the vehicle attitude, derives the wing tilt angle that points the panel normal at the
+ * sun, and closes a position loop on the AS5600 encoder feedback (sensor_encoder). The control
+ * effort is sent to a dedicated reversible ESC via vehicle_command / DO_SET_ACTUATOR
+ * (Peripheral_via_Actuator_Set1, mapped with PWM_MAIN_FUNCx = 301).
+ */
+
+#pragma once
+
+#include <px4_platform_common/defines.h>
+#include <px4_platform_common/module.h>
+#include <px4_platform_common/module_params.h>
+#include <px4_platform_common/posix.h>
+#include <px4_platform_common/px4_work_queue/ScheduledWorkItem.hpp>
+#include <drivers/drv_hrt.h>
+#include <lib/perf/perf_counter.h>
+
+#include <uORB/Publication.hpp>
+#include <uORB/Subscription.hpp>
+#include <uORB/SubscriptionInterval.hpp>
+#include <uORB/topics/parameter_update.h>
+#include <uORB/topics/sensor_encoder.h>
+#include <uORB/topics/sensor_gps.h>
+#include <uORB/topics/vehicle_attitude.h>
+#include <uORB/topics/vehicle_command.h>
+#include <uORB/topics/vehicle_global_position.h>
+
+using namespace time_literals;
+
+class SunTracker : public ModuleBase<SunTracker>, public ModuleParams, public px4::ScheduledWorkItem
+{
+public:
+	SunTracker();
+	~SunTracker() override;
+
+	/** @see ModuleBase */
+	static int task_spawn(int argc, char *argv[]);
+	static int custom_command(int argc, char *argv[]);
+	static int print_usage(const char *reason = nullptr);
+
+	bool init();
+
+	int print_status() override;
+
+private:
+	void Run() override;
+
+	void parameters_update();
+
+	// Command the ESC to a normalized value in [-1, 1] (rate-limited to reduce command traffic).
+	void publishActuator(float value);
+
+	// Compute the desired wing tilt angle [rad] from the body-frame sun unit vector.
+	float desiredTiltFromSun(float sun_body_x, float sun_body_y, float sun_body_z) const;
+
+	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
+	uORB::Subscription _vehicle_attitude_sub{ORB_ID(vehicle_attitude)};
+	uORB::Subscription _vehicle_global_position_sub{ORB_ID(vehicle_global_position)};
+	uORB::Subscription _sensor_gps_sub{ORB_ID(sensor_gps)};
+	uORB::Subscription _sensor_encoder_sub{ORB_ID(sensor_encoder)};
+
+	uORB::Publication<vehicle_command_s> _vehicle_command_pub{ORB_ID(vehicle_command)};
+
+	// PID state
+	float _integral{0.f};
+	float _last_error{0.f};
+	bool _last_error_valid{false};
+	hrt_abstime _last_run{0};
+
+	// Output rate limiting / change detection
+	float _last_output{NAN};
+	hrt_abstime _last_publish{0};
+
+	perf_counter_t _loop_perf{perf_alloc(PC_ELAPSED, MODULE_NAME": cycle")};
+
+	DEFINE_PARAMETERS(
+		(ParamBool<px4::params::SUN_TRK_EN>) _param_sun_trk_en,
+		(ParamFloat<px4::params::SUN_KP>) _param_sun_kp,
+		(ParamFloat<px4::params::SUN_KI>) _param_sun_ki,
+		(ParamFloat<px4::params::SUN_KD>) _param_sun_kd,
+		(ParamFloat<px4::params::SUN_TILT_OFF>) _param_sun_tilt_off,
+		(ParamFloat<px4::params::SUN_TILT_MIN>) _param_sun_tilt_min,
+		(ParamFloat<px4::params::SUN_TILT_MAX>) _param_sun_tilt_max,
+		(ParamFloat<px4::params::SUN_DEADBAND>) _param_sun_deadband,
+		(ParamFloat<px4::params::SUN_PARK>) _param_sun_park,
+		(ParamInt<px4::params::SUN_AXIS>) _param_sun_axis
+	)
+};
