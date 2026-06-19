@@ -261,6 +261,8 @@
 
 #define DRV_INS_DEVTYPE_SBG		0xEC
 
+#define DRV_ENC_DEVTYPE_AS5600		0xED
+
 #define DRV_DEVTYPE_UNUSED		0xff
 
 #endif /* _DRV_SENSOR_H */

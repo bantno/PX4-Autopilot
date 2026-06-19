@@ -81,3 +81,19 @@ param set-default PWM_MAIN_FUNC3 201
 param set-default PWM_MAIN_FUNC4 202
 param set-default PWM_MAIN_FUNC5 203
 param set-default PWM_MAIN_FUNC6 204
+
+# Sun-tracking tilt wing: dedicated reversible-ESC output on ch7 via
+# Peripheral_via_Actuator_Set1. The sun_tracker module drives it with
+# vehicle_command/DO_SET_ACTUATOR (param1 -> Set1). Configure the output so the
+# reversible ESC reads center = neutral and +/-1 = full forward/reverse.
+param set-default PWM_MAIN_FUNC7 301
+
+# Sun-tracking is opt-in: enable with SUN_TRK_EN once the encoder/ESC are wired.
+param set-default SUN_TRK_EN 0
+
+# Sun tracker startup. 'as5600' is a hardware I2C driver (AS5600 wing-angle encoder
+# on an external I2C bus); it is not built for SITL, so the line below is a harmless
+# no-op there. 'sun_tracker' runs in both SITL and on hardware, gating on valid
+# attitude/GPS/encoder data until SUN_TRK_EN is set.
+as5600 start -X
+sun_tracker start
