@@ -37,10 +37,12 @@
  * Sun-tracking tilt-wing controller.
  *
  * Computes the sun direction from GPS position + UTC time, expresses it in the body frame
- * using the vehicle attitude, derives the wing tilt angle that points the panel normal at the
- * sun, and closes a position loop on the AS5600 encoder feedback (sensor_encoder). The control
+ * using the vehicle attitude (including a north-referenced heading, gated on the estimator
+ * heading variance so it works stationary on the ground), derives the wing tilt angle that points
+ * the panel normal at the sun, and closes a position loop on the AS5600 encoder feedback
+ * (sensor_encoder). The control
  * effort is sent to a dedicated reversible ESC via vehicle_command / DO_SET_ACTUATOR
- * (Peripheral_via_Actuator_Set1, mapped with PWM_MAIN_FUNCx = 301).
+ * (Peripheral_via_Actuator_Set1, mapped with PWM_AUX_FUNCx = 301).
  */
 
 #pragma once
@@ -50,6 +52,7 @@
 #include <px4_platform_common/module_params.h>
 #include <px4_platform_common/posix.h>
 #include <px4_platform_common/px4_work_queue/ScheduledWorkItem.hpp>
+#include <px4_platform_common/time.h>
 #include <drivers/drv_hrt.h>
 #include <lib/perf/perf_counter.h>
 
@@ -59,9 +62,11 @@
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/sensor_encoder.h>
 #include <uORB/topics/sensor_gps.h>
+#include <uORB/topics/sun_tracker_status.h>
 #include <uORB/topics/vehicle_attitude.h>
 #include <uORB/topics/vehicle_command.h>
 #include <uORB/topics/vehicle_global_position.h>
+#include <uORB/topics/vehicle_local_position.h>
 
 using namespace time_literals;
 
@@ -88,16 +93,29 @@ private:
 	// Command the ESC to a normalized value in [-1, 1] (rate-limited to reduce command traffic).
 	void publishActuator(float value);
 
+	// Publish the per-cycle diagnostics (sun_tracker_status) for logging/telemetry.
+	void publishStatus(bool enabled, bool debug_sweep, bool pose_valid, bool heading_valid, bool encoder_valid);
+
 	// Compute the desired wing tilt angle [rad] from the body-frame sun unit vector.
 	float desiredTiltFromSun(float sun_body_x, float sun_body_y, float sun_body_z) const;
 
 	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
 	uORB::Subscription _vehicle_attitude_sub{ORB_ID(vehicle_attitude)};
 	uORB::Subscription _vehicle_global_position_sub{ORB_ID(vehicle_global_position)};
+	uORB::Subscription _vehicle_local_position_sub{ORB_ID(vehicle_local_position)};
 	uORB::Subscription _sensor_gps_sub{ORB_ID(sensor_gps)};
 	uORB::Subscription _sensor_encoder_sub{ORB_ID(sensor_encoder)};
 
 	uORB::Publication<vehicle_command_s> _vehicle_command_pub{ORB_ID(vehicle_command)};
+	uORB::Publication<sun_tracker_status_s> _sun_tracker_status_pub{ORB_ID(sun_tracker_status)};
+
+	// Resolve a usable UTC (microseconds since the Unix epoch): prefer GPS, fall back to the
+	// system realtime clock when GPS provides none (e.g. SITL). Returns 0 if neither is valid.
+	uint64_t resolveUtcUsec(const sensor_gps_s &gps, bool have_gps) const;
+
+	// Encoder->wing conversion factor (1 / SUN_GEAR_RATIO), resolved once in init(). The gear
+	// ratio is fixed mechanical configuration, so it is never re-read in the control loop.
+	float _encoder_to_wing{1.f};
 
 	// PID state
 	float _integral{0.f};
@@ -108,6 +126,17 @@ private:
 	// Output rate limiting / change detection
 	float _last_output{NAN};
 	hrt_abstime _last_publish{0};
+
+	// Diagnostics (for print_status); angles in radians.
+	const char *_status{"init"};
+	float _sun_az{NAN};
+	float _sun_el{NAN};
+	float _heading{NAN};
+	float _heading_var{NAN};
+	float _tilt_setpoint{NAN};
+	float _measured_angle{NAN};
+	float _error{NAN};
+	float _output{NAN};
 
 	perf_counter_t _loop_perf{perf_alloc(PC_ELAPSED, MODULE_NAME": cycle")};
 
@@ -121,6 +150,13 @@ private:
 		(ParamFloat<px4::params::SUN_TILT_MAX>) _param_sun_tilt_max,
 		(ParamFloat<px4::params::SUN_DEADBAND>) _param_sun_deadband,
 		(ParamFloat<px4::params::SUN_PARK>) _param_sun_park,
-		(ParamInt<px4::params::SUN_AXIS>) _param_sun_axis
+		(ParamInt<px4::params::SUN_AXIS>) _param_sun_axis,
+		(ParamBool<px4::params::SUN_TILT_REV>) _param_sun_tilt_rev,
+		(ParamFloat<px4::params::SUN_GEAR_RATIO>) _param_sun_gear,
+		(ParamFloat<px4::params::SUN_HDG_VAR_MAX>) _param_sun_hdg_var_max,
+
+		// >>> TEMP DEBUG SWEEP — remove with the matching code in SunTracker.cpp. <<<
+		(ParamBool<px4::params::SUN_DBG_SWP>) _param_sun_dbg_swp,
+		(ParamFloat<px4::params::SUN_DBG_AMP>) _param_sun_dbg_amp
 	)
 };

@@ -1,0 +1,125 @@
+#!/bin/sh
+#
+# @name Twin Tractor (Differential Thrust + Sun Tracker)
+# @type Standard Plane
+# @class Plane
+#
+# Hardware port of the 4244_jsbsim_twin_tractor SITL airframe. Same FW tuning and
+# control allocation (CA_AIRFRAME 16 = differential-thrust fixed wing); only the
+# simulator/output layer differs. The SITL-only failsafe relaxations and the
+# wing_tilt_sim plant are intentionally omitted here.
+#
+
+. ${R}etc/init.d/rc.fw_defaults
+
+param set-default FW_LND_ANG 3
+
+param set-default NPFG_PERIOD 12
+
+# Rate-loop gains cut conservatively for the real mass props (4 kg, low inertia).
+# The previous values were inherited from the ~26-40x heavier Rascal-frame placeholder;
+# rate-loop gain scales ~1/inertia, so they were ~30x too hot (violent limit-cycle in SITL).
+# Scaled down per-axis by the inertia ratio (pitch /40, roll /26, yaw /35). Stable but
+# sluggish on purpose; run FW autotune from this baseline to refine. Originals in comments.
+param set-default FW_PR_P 0.022    # was 0.9
+param set-default FW_PR_FF 0.005   # was 0.2
+param set-default FW_PR_I 0.012    # was 0.5
+param set-default TRIM_PITCH 0
+
+param set-default FW_RR_FF 0.02    # was 0.5
+param set-default FW_RR_P 0.015    # was 0.4
+param set-default FW_RR_I 0.027    # was 0.7
+
+param set-default FW_R_RMAX 56.15
+
+param set-default FW_YR_FF 0.01    # was 0.3
+param set-default FW_YR_P 0.037    # was 1.3
+param set-default FW_YR_I 0.02     # was 0.7
+
+param set-default FW_PSP_OFF 0
+param set-default FW_P_LIM_MIN -15
+
+param set-default FW_T_CLMB_MAX 5
+param set-default FW_T_SINK_MAX 3.5
+param set-default FW_T_SINK_MIN 3
+
+# Airspeed envelope matched to how this airframe actually flies. The previous
+# defaults (TRIM 15 / MAX 20) were ~2x below the real glide speed (~27-30 m/s
+# observed at idle), so TECS saw a permanent overspeed, zeroed throttle and held
+# max sink -> the loiter would not hold altitude.
+param set-default FW_AIRSPD_TRIM 22
+param set-default FW_AIRSPD_MAX 35
+param set-default FW_AIRSPD_MIN 13
+
+param set-default FW_W_EN 1
+
+param set-default FD_ESCS_EN 0
+
+param set-default MIS_TAKEOFF_ALT 50
+
+param set-default NAV_ACC_RAD 15
+
+param set-default RWTO_TKOFF 1
+
+param set-default COM_PREARM_MODE 2
+
+# Control allocation: fixed-wing with differential-thrust yaw, 2 motors.
+# CA_AIRFRAME 16 selects ActuatorEffectivenessFixedWingDiffThrust, which enables
+# yaw-by-differential-thrust on the ground (and on gear-switch override in air)
+# and disables it once airborne. Tune CA_DTHR_SC to scale the yaw authority.
+param set-default CA_AIRFRAME 16
+
+param set-default CA_ROTOR_COUNT 2
+param set-default CA_ROTOR0_PX 0.3
+param set-default CA_ROTOR0_PY -0.25
+param set-default CA_ROTOR1_PX 0.3
+param set-default CA_ROTOR1_PY 0.25
+
+# 4 control surfaces: 2 ailerons + 2 V-tail (custom type for explicit mixing)
+param set-default CA_SV_CS_COUNT 4
+param set-default CA_SV_CS0_TYPE 1
+param set-default CA_SV_CS0_TRQ_R -0.5
+param set-default CA_SV_CS1_TYPE 2
+param set-default CA_SV_CS1_TRQ_R 0.5
+param set-default CA_SV_CS2_TYPE 0
+param set-default CA_SV_CS2_TRQ_P 0.5
+param set-default CA_SV_CS2_TRQ_Y 0.5
+param set-default CA_SV_CS3_TYPE 0
+param set-default CA_SV_CS3_TRQ_P 0.5
+param set-default CA_SV_CS3_TRQ_Y -0.5
+
+# Output mapping on the FMU main PWM rail:
+#   Motor1 -> MAIN1, Motor2 -> MAIN2, Servo1..4 (CS0..CS3) -> MAIN3..6
+param set-default PWM_MAIN_FUNC1 101
+param set-default PWM_MAIN_FUNC2 102
+param set-default PWM_MAIN_FUNC3 201
+param set-default PWM_MAIN_FUNC4 202
+param set-default PWM_MAIN_FUNC5 203
+param set-default PWM_MAIN_FUNC6 204
+
+# Sun-tracking tilt wing: dedicated reversible-ESC output on the FMU rail (FMU7)
+# via Peripheral_via_Actuator_Set1. The sun_tracker module drives it with
+# vehicle_command/DO_SET_ACTUATOR (param1 -> Set1). Configure the output so the
+# reversible ESC reads center = neutral and +/-1 = full forward/reverse.
+param set-default PWM_AUX_FUNC7 301
+
+# Hold the tilt ESC at neutral (1500us) when the output is not live: PWM_AUX_DIS7
+# applies while fully disarmed/not-prearmed, and PWM_AUX_FAIL7 on flight termination.
+# When prearmed/armed the sun_tracker command drives FMU7 directly; at rest (u=0) the
+# symmetric MIN/MAX (1000/2000) already maps to 1500, so the wing stays put.
+param set-default PWM_AUX_DIS7 1500
+param set-default PWM_AUX_FAIL7 1500
+
+# Reverse the sun-derived tilt direction to match this airframe's wing/encoder mounting:
+# the geometry convention (+tilt = panel normal toward +body-X / nose) is opposite the encoder's
+# physical positive direction, so without this the wing tilts the right amount the wrong way.
+param set-default SUN_TILT_REV 1
+
+# Sun-tracking is opt-in: enable with SUN_TRK_EN once the encoder/ESC are wired.
+param set-default SUN_TRK_EN 0
+
+# Sun tracker startup. 'as5600' is the AS5600 wing-angle encoder on external I2C bus 4
+# (-X external, -b 4 bus number). 'sun_tracker' gates on valid attitude/GPS/encoder data
+# until SUN_TRK_EN is set.
+as5600 start -X -b 4
+sun_tracker start

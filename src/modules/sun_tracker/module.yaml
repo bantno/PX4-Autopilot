@@ -112,3 +112,75 @@ parameters:
           1: Body X (roll)
         default: 0
         reboot_required: true
+
+      SUN_TILT_REV:
+        description:
+          short: Reverse the commanded tilt direction
+          long: |
+            Negates the sun-derived tilt setpoint to reconcile the geometry convention (positive
+            tilt = panel normal rotates from level toward +body-X / nose forward) with how the wing
+            shaft and encoder are physically mounted. Set to 1 if the wing tilts the correct amount
+            but in the opposite direction (e.g. forward when it should go backward). Does not affect
+            the encoder/ESC loop sign, only which way the panel is asked to point.
+        type: boolean
+        default: 0
+
+      SUN_GEAR_RATIO:
+        description:
+          short: Encoder-to-wing gear ratio (encoder turns per wing turn)
+          long: |
+            Gear reduction between the wing tilt shaft and the AS5600 encoder shaft. Set to
+            (shaft gear teeth) / (encoder gear teeth). The encoder rotates this many turns per
+            wing turn, so the controller divides the measured encoder angle by this ratio to
+            recover the true wing angle. 1.0 = direct drive (encoder on the wing shaft).
+            Example: a 25-tooth shaft gear driving a 20-tooth encoder gear -> 25/20 = 1.25.
+        type: float
+        min: 0.1
+        max: 10.0
+        decimal: 3
+        increment: 0.01
+        default: 1.0
+        reboot_required: true
+
+      SUN_HDG_VAR_MAX:
+        description:
+          short: Maximum heading variance accepted for tracking
+          long: |
+            Heading-quality gate. Tracking is allowed only when the estimator's heading variance
+            (vehicle_local_position.heading_var) is at or below this value, i.e. yaw is aided by an
+            absolute reference (magnetometer or GPS yaw) and the estimate is tight enough to point
+            the panel. This intentionally does NOT use heading_good_for_control: that flag only
+            becomes true after an in-flight magnetometer alignment, so it never asserts on the
+            ground, whereas a sun tracker runs stationary. sqrt(value) is the 1-sigma heading error
+            in rad; the 0.05 default is ~13 deg, which keeps the panel cosine loss negligible.
+        type: float
+        min: 0.001
+        max: 0.5
+        decimal: 4
+        increment: 0.005
+        default: 0.05
+
+      # >>> TEMP DEBUG SWEEP (bench testing only) — remove this block and the matching
+      #     code in SunTracker.cpp/.hpp once tilt-wing actuation is validated.
+      SUN_DBG_SWP:
+        description:
+          short: "DEBUG: sweep the wing back and forth instead of tracking the sun"
+          long: |
+            Test-only. When enabled, ignore GPS/sun/attitude and drive the tilt setpoint as a
+            sine sweep of +/-SUN_DBG_AMP about zero (still closed on the encoder, still clamped to
+            SUN_TILT_MIN/MAX). Lets you verify the encoder + reversible ESC on the bench without a
+            fix. Runs even if SUN_TRK_EN is 0. Remove before flight.
+        type: boolean
+        default: 0
+
+      SUN_DBG_AMP:
+        description:
+          short: "DEBUG: sweep half-amplitude for SUN_DBG_SWP"
+        type: float
+        unit: deg
+        min: 0.0
+        max: 45.0
+        decimal: 1
+        increment: 1.0
+        default: 10.0
+      # <<< TEMP DEBUG SWEEP
