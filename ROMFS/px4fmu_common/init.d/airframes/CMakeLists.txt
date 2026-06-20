@@ -118,6 +118,9 @@ if(CONFIG_MODULES_FW_RATE_CONTROL)
 		# [3000, 3999] Flying wing
 		3000_generic_wing
 
+		# [4200, 4299] Differential-thrust fixed wing
+		4244_twin_tractor
+
 		# [17000, 17999] Autogyro
 		17002_TF-AutoG2
 		17003_TF-G2
