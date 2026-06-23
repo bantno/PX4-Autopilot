@@ -1,0 +1,5 @@
+menuconfig DRIVERS_POWER_MONITOR_INA226_CHARGER
+	bool "ina226_charger"
+	default n
+	---help---
+		Enable support for the INA226 battery charging monitor (publishes battery_charging)
