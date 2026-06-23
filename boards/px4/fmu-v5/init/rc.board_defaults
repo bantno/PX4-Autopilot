@@ -3,6 +3,10 @@
 # board specific defaults
 #------------------------------------------------------------------------------
 
+# Default airframe: twin-tractor differential-thrust fixed wing (sun-tracking tilt wing).
+# Set here so a fresh flash boots straight into this airframe; override via QGC / SYS_AUTOSTART.
+param set-default SYS_AUTOSTART 4244
+
 param set-default BAT1_V_DIV 18.1
 param set-default BAT2_V_DIV 18.1
 

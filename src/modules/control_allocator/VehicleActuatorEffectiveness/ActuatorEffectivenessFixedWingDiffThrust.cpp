@@ -43,11 +43,25 @@ ActuatorEffectivenessFixedWingDiffThrust::ActuatorEffectivenessFixedWingDiffThru
 
 bool ActuatorEffectivenessFixedWingDiffThrust::isDiffThrustYawEnabled()
 {
+	// Cache the RC gear-switch state
 	manual_control_switches_s switches;
 
 	if (_manual_control_switches_sub.update(&switches)) {
-		_diff_thrust_yaw_enabled = (switches.gear_switch == manual_control_switches_s::SWITCH_POS_ON);
+		_gear_switch_on = (switches.gear_switch == manual_control_switches_s::SWITCH_POS_ON);
 	}
+
+	// Cache the landed state (hysteresis is handled by the land detector, so this
+	// does not chatter around liftoff/touchdown)
+	vehicle_land_detected_s land_detected;
+
+	if (_vehicle_land_detected_sub.update(&land_detected)) {
+		_landed = land_detected.landed;
+	}
+
+	// On the ground, differential-thrust yaw is enabled by default to help keep the
+	// takeoff/taxi roll straight. Once airborne, differential thrust is no longer used
+	// as a yaw source unless the pilot explicitly re-enables it with the gear switch.
+	_diff_thrust_yaw_enabled = _landed || _gear_switch_on;
 
 	return _diff_thrust_yaw_enabled;
 }
@@ -56,12 +70,13 @@ bool
 ActuatorEffectivenessFixedWingDiffThrust::getEffectivenessMatrix(Configuration &configuration,
 		EffectivenessUpdateReason external_update)
 {
-	// Check for switch state change even on NO_EXTERNAL_UPDATE
+	// Rebuild on a change of the diff-thrust-yaw enable state (landed or gear switch),
+	// even on NO_EXTERNAL_UPDATE, so the yaw column is zeroed/restored at liftoff/touchdown
 	bool prev_enabled = _diff_thrust_yaw_enabled;
 	bool now_enabled = isDiffThrustYawEnabled();
-	bool switch_changed = (prev_enabled != now_enabled);
+	bool enable_changed = (prev_enabled != now_enabled);
 
-	if (external_update == EffectivenessUpdateReason::NO_EXTERNAL_UPDATE && !switch_changed) {
+	if (external_update == EffectivenessUpdateReason::NO_EXTERNAL_UPDATE && !enable_changed) {
 		return false;
 	}
 
