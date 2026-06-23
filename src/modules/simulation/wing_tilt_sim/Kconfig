@@ -1,0 +1,6 @@
+menuconfig MODULES_SIMULATION_WING_TILT_SIM
+	bool "wing_tilt_sim"
+	default n
+	---help---
+		SITL-only plant model that integrates the sun_tracker tilt command into a wing angle
+		and publishes sensor_encoder, to close the position loop in simulation.
