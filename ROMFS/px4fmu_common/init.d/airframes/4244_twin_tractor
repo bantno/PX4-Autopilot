@@ -123,3 +123,10 @@ param set-default SUN_TRK_EN 0
 # until SUN_TRK_EN is set.
 as5600 start -X -b 4
 sun_tracker start
+
+# Battery charging monitor: INA226 on the charge path, external I2C bus 4 (shared with
+# the AS5600 encoder; INA226 is 0x40-0x4F, AS5600 is fixed 0x36, so no address conflict).
+# Publishes to the battery_charging uORB topic, separate from battery_status.
+# NOTE: -a 0x40 is the common breakout default; change it to match your strapped address.
+# -k keeps the driver retrying if the INA226 is not yet powered.
+ina226_charger start -X -b 4 -a 0x40 -k
