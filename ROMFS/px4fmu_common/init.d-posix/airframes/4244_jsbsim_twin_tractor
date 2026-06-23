@@ -14,20 +14,25 @@ param set-default FW_LND_ANG 8
 
 param set-default NPFG_PERIOD 12
 
-param set-default FW_PR_P 0.9
-param set-default FW_PR_FF 0.2
-param set-default FW_PR_I 0.5
+# Rate-loop gains cut conservatively for the real mass props (4 kg, low inertia).
+# The previous values were inherited from the ~26-40x heavier Rascal-frame placeholder;
+# rate-loop gain scales ~1/inertia, so they were ~30x too hot (violent limit-cycle in SITL).
+# Scaled down per-axis by the inertia ratio (pitch /40, roll /26, yaw /35). Stable but
+# sluggish on purpose; run FW autotune from this baseline to refine. Originals in comments.
+param set-default FW_PR_P 0.022    # was 0.9
+param set-default FW_PR_FF 0.005   # was 0.2
+param set-default FW_PR_I 0.012    # was 0.5
 param set-default TRIM_PITCH 0
 
-param set-default FW_RR_FF 0.5
-param set-default FW_RR_P 0.4
-param set-default FW_RR_I 0.7
+param set-default FW_RR_FF 0.02    # was 0.5
+param set-default FW_RR_P 0.015    # was 0.4
+param set-default FW_RR_I 0.027    # was 0.7
 
 param set-default FW_R_RMAX 56.15
 
-param set-default FW_YR_FF 0.3
-param set-default FW_YR_P 1.3
-param set-default FW_YR_I 0.7
+param set-default FW_YR_FF 0.01    # was 0.3
+param set-default FW_YR_P 0.037    # was 1.3
+param set-default FW_YR_I 0.02     # was 0.7
 
 param set-default FW_PSP_OFF 0
 param set-default FW_P_LIM_MIN -15
@@ -36,6 +41,14 @@ param set-default FW_T_CLMB_MAX 5
 param set-default FW_T_SINK_MAX 3.5
 param set-default FW_T_SINK_MIN 3
 
+# Airspeed envelope matched to how this airframe actually flies. The previous
+# defaults (TRIM 15 / MAX 20) were ~2x below the real glide speed (~27-30 m/s
+# observed at idle), so TECS saw a permanent overspeed, zeroed throttle and held
+# max sink -> the loiter would not hold altitude.
+param set-default FW_AIRSPD_TRIM 22
+param set-default FW_AIRSPD_MAX 35
+param set-default FW_AIRSPD_MIN 15
+
 param set-default FW_W_EN 1
 
 param set-default FD_ESCS_EN 0
@@ -43,21 +56,31 @@ param set-default FD_ESCS_EN 0
 param set-default MIS_TAKEOFF_ALT 30
 
 param set-default NAV_ACC_RAD 15
-param set-default NAV_DLL_ACT 2
 
 param set-default RWTO_TKOFF 1
 
 param set-default COM_PREARM_MODE 2
 
-# Control allocation: standard fixed-wing with 2 motors (matches gz 4242).
-# To enable differential-thrust yaw, set CA_AIRFRAME 16 and tune CA_DTHR_SC.
-param set-default CA_AIRFRAME 1
+# --- TEST-ONLY: relax arming checks so the air-launch IC can be force-armed mid-flight.
+# Remove these before using this airframe for real / ground operations.
+param set-default NAV_DLL_ACT 0          # no datalink-loss failsafe (was 2; "No GCS" block)
+param set-default NAV_RCL_ACT 0          # no RC-loss failsafe
+param set-default COM_RC_IN_MODE 4       # RC/stick input not required (headless)
+param set-default COM_ARM_WO_GPS 1       # allow arming without GPS lock
+param set-default CBRK_AIRSPD_CHK 162128 # disable airspeed preflight check
+# --- end TEST-ONLY
+
+# Control allocation: fixed-wing with differential-thrust yaw, 2 motors.
+# CA_AIRFRAME 16 selects ActuatorEffectivenessFixedWingDiffThrust, which enables
+# yaw-by-differential-thrust on the ground (and on gear-switch override in air)
+# and disables it once airborne. Tune CA_DTHR_SC to scale the yaw authority.
+param set-default CA_AIRFRAME 16
 
 param set-default CA_ROTOR_COUNT 2
 param set-default CA_ROTOR0_PX 0.3
-param set-default CA_ROTOR0_PY -1.0
+param set-default CA_ROTOR0_PY -0.25
 param set-default CA_ROTOR1_PX 0.3
-param set-default CA_ROTOR1_PY 1.0
+param set-default CA_ROTOR1_PY 0.25
 
 # 4 control surfaces: 2 ailerons + 2 V-tail (custom type for explicit mixing)
 param set-default CA_SV_CS_COUNT 4
@@ -95,5 +118,10 @@ param set-default SUN_TRK_EN 0
 # on an external I2C bus); it is not built for SITL, so the line below is a harmless
 # no-op there. 'sun_tracker' runs in both SITL and on hardware, gating on valid
 # attitude/GPS/encoder data until SUN_TRK_EN is set.
+#
+# 'wing_tilt_sim' is the inverse: a SITL-only plant that integrates the tilt command into a
+# wing angle and publishes sensor_encoder, closing the loop in simulation. It is not built for
+# hardware, so it is a no-op there (the real AS5600 provides the feedback instead).
 as5600 start -X
+wing_tilt_sim start
 sun_tracker start

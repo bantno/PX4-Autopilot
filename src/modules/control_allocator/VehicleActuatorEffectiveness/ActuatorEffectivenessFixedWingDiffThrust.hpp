@@ -39,14 +39,19 @@
 
 #include <uORB/topics/normalized_unsigned_setpoint.h>
 #include <uORB/topics/manual_control_switches.h>
+#include <uORB/topics/vehicle_land_detected.h>
 
 /**
- * Fixed-wing with switchable differential thrust yaw.
+ * Fixed-wing with differential thrust yaw gated on the airborne state.
  *
- * Identical to ActuatorEffectivenessFixedWing, but reads the gear switch
- * (RC_MAP_GEAR_SW) to enable/disable yaw authority from differential thrust.
- * Gear switch ON = differential thrust yaw enabled.
- * Gear switch OFF or unmapped = differential thrust yaw disabled.
+ * Identical to ActuatorEffectivenessFixedWing, but gates yaw authority from
+ * differential thrust on whether the vehicle is on the ground:
+ *   - On the ground (landed): yaw-by-differential-thrust is enabled by default,
+ *     to help keep the takeoff/taxi ground roll straight.
+ *   - Airborne: differential thrust is no longer used as a yaw source, unless
+ *     the pilot explicitly re-enables it with the gear switch (RC_MAP_GEAR_SW).
+ *
+ * In short: enabled = landed || gear_switch_on.
  */
 class ActuatorEffectivenessFixedWingDiffThrust : public ModuleParams, public ActuatorEffectiveness
 {
@@ -73,12 +78,15 @@ private:
 	uORB::Subscription _flaps_setpoint_sub{ORB_ID(flaps_setpoint)};
 	uORB::Subscription _spoilers_setpoint_sub{ORB_ID(spoilers_setpoint)};
 	uORB::Subscription _manual_control_switches_sub{ORB_ID(manual_control_switches)};
+	uORB::Subscription _vehicle_land_detected_sub{ORB_ID(vehicle_land_detected)};
 
 	int _first_control_surface_idx{0};
 
 	uint32_t _forwards_motors_mask{};
 
-	bool _diff_thrust_yaw_enabled{false};
+	bool _gear_switch_on{false};
+	bool _landed{true}; // assume on the ground until the land detector says otherwise
+	bool _diff_thrust_yaw_enabled{true};
 
 	DEFINE_PARAMETERS(
 		(ParamFloat<px4::params::CA_DTHR_SC>) _param_ca_dthr_sc
