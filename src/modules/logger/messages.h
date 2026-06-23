@@ -116,7 +116,11 @@ struct ulog_message_format_s {
 	uint16_t msg_size; ///< size of message - ULOG_MSG_HEADER_LEN
 	uint8_t msg_type = static_cast<uint8_t>(ULogMessageType::FORMAT);
 
-	char format[1600];
+	// Must hold the largest *expanded* topic format string + name + leftover from batched
+	// formats. estimator_status_flags expands to ~1600 B (tokenized max is 1287); 1600 left
+	// almost no leftover headroom, so its format was silently skipped and logs referencing it
+	// failed to parse. 2048 gives ~470 B of headroom.
+	char format[2048];
 };
 
 /**
