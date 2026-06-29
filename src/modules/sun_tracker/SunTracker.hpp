@@ -47,6 +47,7 @@
 
 #pragma once
 
+#include <px4_platform_common/atomic.h>
 #include <px4_platform_common/defines.h>
 #include <px4_platform_common/module.h>
 #include <px4_platform_common/module_params.h>
@@ -126,6 +127,11 @@ private:
 	// Output rate limiting / change detection
 	float _last_output{NAN};
 	hrt_abstime _last_publish{0};
+
+	// Park-to-zero request (set by the `park` console command). When active, the loop ignores the
+	// sun/pose gate and holds the wing at the boot-time zero so it can be stowed level before
+	// power-off. Atomic: written from the shell thread, read from the work-queue thread.
+	px4::atomic_bool _park_request{false};
 
 	// Diagnostics (for print_status); angles in radians.
 	const char *_status{"init"};

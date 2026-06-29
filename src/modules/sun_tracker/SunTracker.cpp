@@ -37,6 +37,8 @@
 #include <lib/mathlib/mathlib.h>
 #include <matrix/math.hpp>
 
+#include <string.h>
+
 // Wing tilt axis selection (SUN_AXIS).
 enum class TiltAxis : int32_t {
 	BodyY = 0, // pitch: panel normal sweeps the body X-Z plane (default)
@@ -125,7 +127,11 @@ void SunTracker::Run()
 	// >>> TEMP DEBUG SWEEP: lets the bench sweep run even when tracking is disabled. <<<
 	const bool debug_sweep = _param_sun_dbg_swp.get();
 
-	if (!_param_sun_trk_en.get() && !debug_sweep) {
+	// Park-to-zero (console `park` command). Runs even when tracking is disabled so the wing can be
+	// stowed level before power-off without needing a fix / SUN_TRK_EN.
+	const bool park = _park_request.load();
+
+	if (!_param_sun_trk_en.get() && !debug_sweep && !park) {
 		// Disabled: leave the ESC at its configured disarmed/failsafe value.
 		_status = "disabled";
 		publishStatus(false, false, false, false, false);
@@ -205,6 +211,16 @@ void SunTracker::Run()
 
 	// <<< TEMP DEBUG SWEEP
 
+	// Park overrides tracking and the debug sweep: drive the wing to the boot-time zero and hold it
+	// there. Closing the loop to zero only needs the encoder, so bypass the pose/time/heading gate
+	// (the encoder gate below still applies). Hold until released with `park off` so the wing stays
+	// level through power-off, regardless of whether the drive holds position passively.
+	if (park) {
+		tilt_setpoint = math::constrain(0.f, _param_sun_tilt_min.get(), _param_sun_tilt_max.get());
+		_tilt_setpoint = tilt_setpoint;
+		pose_ok = true;
+	}
+
 	const bool encoder_valid = have_enc && enc.valid;
 
 	if (!pose_ok || !encoder_valid) {
@@ -237,7 +253,7 @@ void SunTracker::Run()
 		return;
 	}
 
-	_status = debug_sweep ? "DEBUG sweep" : "tracking"; // TEMP DEBUG SWEEP
+	_status = park ? "parking" : (debug_sweep ? "DEBUG sweep" : "tracking"); // TEMP DEBUG SWEEP
 
 	// The AS5600 is geared to the wing shaft, so it rotates faster than the wing. Scale the measured
 	// encoder angle back into the wing frame using the factor resolved at init (1 / SUN_GEAR_RATIO),
@@ -371,6 +387,25 @@ int SunTracker::task_spawn(int argc, char *argv[])
 
 int SunTracker::custom_command(int argc, char *argv[])
 {
+	if (!is_running()) {
+		print_usage("not running");
+		return 1;
+	}
+
+	if (argc >= 1 && strcmp(argv[0], "park") == 0) {
+		const bool engage = !(argc >= 2 && strcmp(argv[1], "off") == 0);
+		SunTracker *inst = get_instance();
+
+		if (inst) {
+			inst->_park_request.store(engage);
+			PX4_INFO(engage ? "park: driving wing to zero and holding (use `park off` to release)"
+				 : "park: released");
+			return 0;
+		}
+
+		return 1;
+	}
+
 	return print_usage("unknown command");
 }
 
@@ -392,6 +427,8 @@ the solar panel normal at the sun, and closes a position loop on the AS5600 enco
 
 	PRINT_MODULE_USAGE_NAME("sun_tracker", "controller");
 	PRINT_MODULE_USAGE_COMMAND("start");
+	PRINT_MODULE_USAGE_COMMAND_DESCR("park", "Drive the wing to the boot-time zero and hold it level (for stowing before power-off)");
+	PRINT_MODULE_USAGE_ARG("off", "Release a park request and resume normal tracking", true);
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
 	return 0;
