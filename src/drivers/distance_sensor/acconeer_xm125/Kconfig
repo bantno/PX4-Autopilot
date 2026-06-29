@@ -1,0 +1,7 @@
+menuconfig DRIVERS_DISTANCE_SENSOR_ACCONEER_XM125
+	bool "acconeer_xm125"
+	default n
+	---help---
+		Enable support for the Acconeer XM125 60 GHz pulsed coherent radar
+		(A121) running the I2C Distance Detector application, used as a
+		downward-facing radar altimeter.

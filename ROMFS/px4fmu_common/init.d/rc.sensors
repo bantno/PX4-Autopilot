@@ -113,6 +113,12 @@ then
 	tf02pro start -X
 fi
 
+# acconeer xm125 i2c radar altimeter
+if param compare -s SENS_EN_XM125 1
+then
+	acconeer_xm125 start -X
+fi
+
 # ADIS16448 spi external IMU
 if param compare -s SENS_EN_ADIS164X 1
 then
