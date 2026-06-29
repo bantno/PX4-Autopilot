@@ -1,0 +1,8 @@
+menuconfig MODULES_SELF_RIGHT
+	bool "self_right"
+	default n
+	---help---
+		Enable the autonomous self-righting controller. Recovers a tilt-wing aircraft from an
+		inverted, at-rest float to upright using propeller thrust only: rotates the wing so the
+		props point up, drives the airframe past its over-center tipping point, then cuts throttle
+		and hands back to MANUAL. Exposes the SELF_RIGHT flight mode (gated on inverted + at rest).

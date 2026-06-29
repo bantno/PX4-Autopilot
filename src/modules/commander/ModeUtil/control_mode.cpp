@@ -179,6 +179,13 @@ void getVehicleControlMode(uint8_t nav_state, uint8_t vehicle_type,
 		vehicle_control_mode.flag_control_allocation_enabled = true;
 		break;
 
+	case vehicle_status_s::NAVIGATION_STATE_SELF_RIGHT:
+		// Self-righting: the self_right module drives actuator_motors and the tilt actuator
+		// directly. Leave all controller and allocation flags disabled so neither the standard
+		// attitude/rate controllers nor control_allocator publish actuator_motors (the allocator
+		// only publishes when flag_control_allocation_enabled is set), letting the module own them.
+		break;
+
 	// vehicle_status_s::NAVIGATION_STATE_EXTERNALx: handled in ModeManagement
 	default:
 		break;

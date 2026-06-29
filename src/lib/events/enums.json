@@ -87,6 +87,10 @@
                             "name": "stab",
                             "description": "Stabilized"
                         },
+                        "65536": {
+                            "name": "self_right",
+                            "description": "Self Right"
+                        },
                         "131072": {
                             "name": "takeoff",
                             "description": "Takeoff"
@@ -607,6 +611,10 @@
                         "24": {
                             "name": "altitude_cruise",
                             "description": "Altitude Cruise"
+                        },
+                        "25": {
+                            "name": "self_right",
+                            "description": "Self Right"
                         },
                         "255": {
                             "name": "unknown",

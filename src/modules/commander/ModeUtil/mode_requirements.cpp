@@ -214,6 +214,12 @@ void getModeRequirements(uint8_t vehicle_type, failsafe_flags_s &flags)
 		setRequirement(vehicle_status_s::NAVIGATION_STATE_AUTO_VTOL_TAKEOFF, flags.mode_req_local_position);
 	}
 
+	// NAVIGATION_STATE_SELF_RIGHT
+	// Needs a usable attitude estimate (the gate and the over-center test use it) and rates,
+	// but deliberately no position/global/home: those are not trustworthy inverted on water.
+	setRequirement(vehicle_status_s::NAVIGATION_STATE_SELF_RIGHT, flags.mode_req_angular_velocity);
+	setRequirement(vehicle_status_s::NAVIGATION_STATE_SELF_RIGHT, flags.mode_req_attitude);
+
 	// NAVIGATION_STATE_EXTERNALx: handled outside
 
 	static_assert(vehicle_status_s::NAVIGATION_STATE_MAX == 31, "update mode requirements");

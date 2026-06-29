@@ -125,3 +125,12 @@ param set-default SUN_TRK_EN 0
 as5600 start -X
 wing_tilt_sim start
 sun_tracker start
+
+# Autonomous self-righting (props-only inverted recovery). Shares the tilt-wing actuator/encoder
+# above. The SELF_RIGHT flight mode is gated so it can only be entered/armed when the estimator
+# reports the aircraft inverted and at rest. Opt-in via SR_EN. Make it selectable on RC flight-mode
+# slot 6 (COM_FLTMODE6) and via GCS; the entry gate is enforced regardless of source.
+param set-default SR_EN 0
+param set-default SR_TILT_SP 1.57
+param set-default COM_FLTMODE6 17
+self_right start

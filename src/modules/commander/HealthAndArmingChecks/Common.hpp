@@ -64,6 +64,7 @@ enum class NavModes : uint32_t {
 	// Add the modes here as needed, but generally rather use mode requirements instead of checks for individual modes.
 	Manual = (uint32_t)navigation_mode_group_t::manual,
 	Stabilized = (uint32_t)navigation_mode_group_t::stab,
+	SelfRight = (uint32_t)navigation_mode_group_t::self_right,
 	PositionControl = (uint32_t)navigation_mode_group_t::posctl,
 	Mission = (uint32_t)navigation_mode_group_t::mission,
 	Takeoff = (uint32_t)navigation_mode_group_t::takeoff,

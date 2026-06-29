@@ -1,6 +1,6 @@
 ############################################################################
 #
-#   Copyright (c) 2022 PX4 Development Team. All rights reserved.
+#   Copyright (c) 2026 PX4 Development Team. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -31,48 +31,15 @@
 #
 ############################################################################
 
-px4_add_library(health_and_arming_checks
-	Common.cpp
-	HealthAndArmingChecks.cpp
-
-	checks/accelerometerCheck.cpp
-	checks/airspeedCheck.cpp
-	checks/armPermissionCheck.cpp
-	checks/baroCheck.cpp
-	checks/batteryCheck.cpp
-	checks/cpuResourceCheck.cpp
-	checks/distanceSensorChecks.cpp
-	checks/opticalFlowCheck.cpp
-	checks/escCheck.cpp
-	checks/estimatorCheck.cpp
-	checks/failureDetectorCheck.cpp
-	checks/flightTimeCheck.cpp
-	checks/geofenceCheck.cpp
-	checks/gyroCheck.cpp
-	checks/homePositionCheck.cpp
-	checks/imuConsistencyCheck.cpp
-	checks/loggerCheck.cpp
-	checks/magnetometerCheck.cpp
-	checks/manualControlCheck.cpp
-	checks/missionCheck.cpp
-	checks/modeCheck.cpp
-	checks/navigatorCheck.cpp
-	checks/offboardCheck.cpp
-	checks/openDroneIDCheck.cpp
-	checks/parachuteCheck.cpp
-	checks/powerCheck.cpp
-	checks/rcAndDataLinkCheck.cpp
-	checks/rcCalibrationCheck.cpp
-	checks/sdcardCheck.cpp
-	checks/selfRightingCheck.cpp
-	checks/systemCheck.cpp
-	checks/vtolCheck.cpp
-	checks/windCheck.cpp
-
-	checks/externalChecks.cpp
-)
-add_dependencies(health_and_arming_checks mode_util)
-
-px4_add_functional_gtest(SRC HealthAndArmingChecksTest.cpp
-	LINKLIBS health_and_arming_checks mode_util
+px4_add_module(
+	MODULE modules__self_right
+	MAIN self_right
+	SRCS
+		SelfRight.cpp
+		SelfRight.hpp
+	MODULE_CONFIG
+		module.yaml
+	DEPENDS
+		px4_work_queue
+		mathlib
 	)

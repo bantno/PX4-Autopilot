@@ -1,0 +1,203 @@
+/****************************************************************************
+ *
+ *   Copyright (c) 2026 PX4 Development Team. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in
+ *    the documentation and/or other materials provided with the
+ *    distribution.
+ * 3. Neither the name PX4 nor the names of its contributors may be
+ *    used to endorse or promote products derived from this software
+ *    without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
+ * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
+ * AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+ * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *
+ ****************************************************************************/
+
+/**
+ * @file SelfRight.hpp
+ *
+ * Autonomous self-righting controller for the tilt-wing aircraft.
+ *
+ * Recovers the aircraft from an inverted, at-rest float to upright using propeller thrust only:
+ * rotates the wing so the props point up, drives the airframe past its over-center tipping point,
+ * cuts throttle and hands back to MANUAL. The mode is entered only when commander's latched
+ * SELF_RIGHT gate (inverted + at rest) allows it. See .CLAUDE/self_right_architecture.md.
+ */
+
+#pragma once
+
+#include <px4_platform_common/defines.h>
+#include <px4_platform_common/module.h>
+#include <px4_platform_common/module_params.h>
+#include <px4_platform_common/posix.h>
+#include <px4_platform_common/px4_work_queue/ScheduledWorkItem.hpp>
+#include <drivers/drv_hrt.h>
+#include <lib/perf/perf_counter.h>
+
+#include <uORB/Publication.hpp>
+#include <uORB/Subscription.hpp>
+#include <uORB/SubscriptionInterval.hpp>
+#include <uORB/topics/parameter_update.h>
+#include <uORB/topics/actuator_motors.h>
+#include <uORB/topics/distance_sensor.h>
+#include <uORB/topics/estimator_status_flags.h>
+#include <uORB/topics/manual_control_setpoint.h>
+#include <uORB/topics/self_right_status.h>
+#include <uORB/topics/sensor_encoder.h>
+#include <uORB/topics/vehicle_acceleration.h>
+#include <uORB/topics/vehicle_angular_velocity.h>
+#include <uORB/topics/vehicle_attitude.h>
+#include <uORB/topics/vehicle_command.h>
+#include <uORB/topics/vehicle_imu.h>
+#include <uORB/topics/vehicle_land_detected.h>
+#include <uORB/topics/vehicle_status.h>
+
+using namespace time_literals;
+
+class SelfRight : public ModuleBase<SelfRight>, public ModuleParams, public px4::ScheduledWorkItem
+{
+public:
+	SelfRight();
+	~SelfRight() override;
+
+	/** @see ModuleBase */
+	static int task_spawn(int argc, char *argv[]);
+	static int custom_command(int argc, char *argv[]);
+	static int print_usage(const char *reason = nullptr);
+
+	bool init();
+
+	int print_status() override;
+
+private:
+	// State machine; values mirror SelfRightStatus.msg STATE_*.
+	enum class State : uint8_t {
+		Idle = 0,        // mode not active
+		RotateWing = 1,  // driving the wing to the props-up setpoint
+		Righting = 2,    // running the SR_STRATEGY righting law
+		Cut = 3,         // throttle cut, parking the wing
+		Done = 4,        // handing back to MANUAL
+	};
+
+	void Run() override;
+	void parameters_update();
+
+	// Returns true while the SELF_RIGHT mode owns the outputs (armed + nav_state matches).
+	bool modeActive(const vehicle_status_s &status) const;
+
+	// Angle of the body +Z axis from world-up [rad]: 0 = upright, pi = fully inverted.
+	float pitchFromUpright(const vehicle_attitude_s &att) const;
+
+	// Throttle for the active strategy this cycle, given elapsed maneuver time and pitch state.
+	float computeRightingThrottle(float t_in_state, float theta, float dt);
+
+	// True if any abort condition is met; sets _abort_reason.
+	bool checkAbort(float t_in_maneuver);
+
+	// Drive the wing tilt position loop toward `setpoint_rad` (publishes DO_SET_ACTUATOR).
+	void commandTilt(float setpoint_rad, float measured_rad, float dt);
+
+	// Publish symmetric motor throttle on actuator_motors (NaN past the two tractors = disarmed).
+	void publishMotors(float throttle);
+
+	// Request a switch back to MANUAL once the maneuver ends.
+	void requestManual();
+
+	void publishStatus();
+	void resetManeuver();
+
+	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
+	uORB::Subscription _vehicle_status_sub{ORB_ID(vehicle_status)};
+	uORB::Subscription _vehicle_attitude_sub{ORB_ID(vehicle_attitude)};
+	uORB::Subscription _vehicle_angular_velocity_sub{ORB_ID(vehicle_angular_velocity)};
+	uORB::Subscription _vehicle_acceleration_sub{ORB_ID(vehicle_acceleration)};
+	uORB::Subscription _sensor_encoder_sub{ORB_ID(sensor_encoder)};
+	uORB::Subscription _vehicle_imu_sub{ORB_ID(vehicle_imu)};
+	uORB::Subscription _estimator_status_flags_sub{ORB_ID(estimator_status_flags)};
+	uORB::Subscription _manual_control_setpoint_sub{ORB_ID(manual_control_setpoint)};
+	uORB::Subscription _vehicle_land_detected_sub{ORB_ID(vehicle_land_detected)};
+	uORB::Subscription _distance_sensor_sub{ORB_ID(distance_sensor)};
+
+	uORB::Publication<vehicle_command_s> _vehicle_command_pub{ORB_ID(vehicle_command)};
+	uORB::Publication<actuator_motors_s> _actuator_motors_pub{ORB_ID(actuator_motors)};
+	uORB::Publication<self_right_status_s> _self_right_status_pub{ORB_ID(self_right_status)};
+
+	State _state{State::Idle};
+	uint8_t _abort_reason{0};       // SelfRightStatus.msg ABORT_*
+	bool _over_center{false};
+
+	hrt_abstime _last_run{0};
+	hrt_abstime _state_start{0};    // time the current State was entered
+	hrt_abstime _maneuver_start{0}; // time RotateWing/Righting began (for SR_TIMEOUT)
+
+	// Tilt position loop state (mirrors SunTracker's PID).
+	float _tilt_integral{0.f};
+	float _tilt_last_error{0.f};
+	bool _tilt_last_error_valid{false};
+	float _last_tilt_cmd{NAN};
+	hrt_abstime _last_tilt_publish{0};
+
+	// Attitude-PID strategy state.
+	float _pid_integral{0.f};
+	float _theta_prev{NAN};
+
+	// Over-center detection: remember the minimum theta seen this attempt.
+	float _theta_min{NAN};
+
+	// Adaptive search state.
+	float _attempt_thrust{NAN};     // current peak thrust for this attempt
+	uint8_t _attempt{0};
+	bool _saw_inverted_again{false};
+
+	// Diagnostics.
+	float _theta{NAN};
+	float _pitch_rate{0.f};
+	float _tilt_angle{NAN};
+	float _cmd_throttle{0.f};
+
+	perf_counter_t _loop_perf{perf_alloc(PC_ELAPSED, MODULE_NAME": cycle")};
+
+	DEFINE_PARAMETERS(
+		(ParamBool<px4::params::SR_EN>) _param_sr_en,
+		(ParamInt<px4::params::SR_STRATEGY>) _param_sr_strategy,
+		(ParamFloat<px4::params::SR_INV_THR>) _param_sr_inv_thr,
+		(ParamFloat<px4::params::SR_TILT_SP>) _param_sr_tilt_sp,
+		(ParamFloat<px4::params::SR_TILT_PARK>) _param_sr_tilt_park,
+		(ParamFloat<px4::params::SR_TILT_TOL>) _param_sr_tilt_tol,
+		(ParamFloat<px4::params::SR_TILT_TMO>) _param_sr_tilt_tmo,
+		(ParamFloat<px4::params::SR_KP>) _param_sr_kp,
+		(ParamFloat<px4::params::SR_KI>) _param_sr_ki,
+		(ParamFloat<px4::params::SR_KD>) _param_sr_kd,
+		(ParamFloat<px4::params::SR_THR_MAX>) _param_sr_thr_max,
+		(ParamFloat<px4::params::SR_RAMP_T>) _param_sr_ramp_t,
+		(ParamFloat<px4::params::SR_OVERCTR>) _param_sr_overctr,
+		(ParamFloat<px4::params::SR_TIMEOUT>) _param_sr_timeout,
+		(ParamFloat<px4::params::SR_PID_P>) _param_sr_pid_p,
+		(ParamFloat<px4::params::SR_PID_I>) _param_sr_pid_i,
+		(ParamFloat<px4::params::SR_PID_D>) _param_sr_pid_d,
+		(ParamBool<px4::params::SR_ADAPT_EN>) _param_sr_adapt_en,
+		(ParamFloat<px4::params::SR_THR_INIT>) _param_sr_thr_init,
+		(ParamFloat<px4::params::SR_THR_STEP>) _param_sr_thr_step,
+		(ParamFloat<px4::params::SR_THR_LRN>) _param_sr_thr_lrn,
+		(ParamFloat<px4::params::SR_STICK_DZ>) _param_sr_stick_dz,
+		(ParamFloat<px4::params::SR_RNG_MIN>) _param_sr_rng_min
+	)
+};

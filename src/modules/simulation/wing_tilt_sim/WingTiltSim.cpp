@@ -38,8 +38,10 @@
 
 // Plant model constants. The tilt motor is treated as a rate source: full command (|u|=1)
 // slews the wing at MAX_RATE_RAD_S; u=0 holds (a non-backdrivable / closed-current actuator).
+// TRAVEL_LIMIT_RAD spans past +/-pi/2 so the self_right mode can rotate the wing to the
+// props-up (~90 deg) self-righting setpoint, not just the sun-tracking range (~+/-69 deg).
 static constexpr float MAX_RATE_RAD_S = 1.5f;
-static constexpr float TRAVEL_LIMIT_RAD = 1.5f;
+static constexpr float TRAVEL_LIMIT_RAD = 1.8f;
 
 WingTiltSim::WingTiltSim() :
 	ScheduledWorkItem(MODULE_NAME, px4::wq_configurations::lp_default)

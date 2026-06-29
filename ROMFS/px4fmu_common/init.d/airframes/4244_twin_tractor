@@ -124,6 +124,14 @@ param set-default SUN_TRK_EN 0
 as5600 start -X -b 4
 sun_tracker start
 
+# Autonomous self-righting (props-only inverted recovery), sharing the tilt-wing actuator/encoder.
+# The SELF_RIGHT flight mode is gated so it can only be entered/armed when the estimator reports the
+# aircraft inverted and at rest. Opt-in via SR_EN. Selectable on RC flight-mode slot 6 and via GCS.
+param set-default SR_EN 0
+param set-default SR_TILT_SP 1.57
+param set-default COM_FLTMODE6 17
+self_right start
+
 # Battery charging monitor: INA226 on the charge path, external I2C bus 4 (shared with
 # the AS5600 encoder; INA226 is 0x40-0x4F, AS5600 is fixed 0x36, so no address conflict).
 # Publishes to the battery_charging uORB topic, separate from battery_status.
