@@ -85,6 +85,9 @@ void WingTilt::Run()
 
 	while (_wing_tilt_setpoint_sub.update(&sp)) {
 		if (sp.source < NUM_SOURCES) {
+			// The wing wiring only permits half a revolution either side of center: clamp
+			// every setpoint to [-pi, pi] wing angle.
+			sp.angle = math::constrain(sp.angle, -(float)M_PI, (float)M_PI);
 			_setpoints[sp.source] = sp;
 		}
 	}
@@ -179,8 +182,10 @@ void WingTilt::Run()
 	dt = math::constrain(dt, 0.001f, 0.2f);
 	_last_run = now;
 
-	// Position error (wrapped) against the de-geared encoder feedback.
-	const float error = matrix::wrap_pi(_setpoint - _measured_angle);
+	// Position error against the de-geared encoder feedback. Deliberately NOT wrapped: the
+	// wing wiring only permits +/- half a revolution from center, so the controller must
+	// always drive through zero — never the short path across the +/-180 deg seam.
+	const float error = _setpoint - _measured_angle;
 
 	// Deadband to avoid ESC dither when we are essentially on target.
 	const float error_eff = (fabsf(error) < _param_tilt_db.get()) ? 0.f : error;

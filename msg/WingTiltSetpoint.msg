@@ -10,6 +10,8 @@ uint8 SOURCE_CONSOLE = 1     # bench hold (`self_right tilt` console command)
 uint8 SOURCE_SELF_RIGHT = 2  # inverted-recovery maneuver (highest priority)
 uint8 source
 
-float32 angle           # wing tilt angle setpoint [rad], wing frame, relative to the boot-time zero
+float32 angle           # wing tilt angle setpoint [rad], wing frame, relative to the boot-time zero;
+                        # clamped by the controller to [-pi, pi] (the wiring permits only half a
+                        # revolution either side of center, and motion never crosses the +/-180 seam)
 
 uint8 ORB_QUEUE_LENGTH = 8
