@@ -35,17 +35,16 @@
 
 #include <lib/mathlib/mathlib.h>
 #include <matrix/math.hpp>
-#include <parameters/param.h>
 
-// Righting strategy (SR_STRATEGY).
-enum class Strategy : int32_t {
-	OpenLoop = 0,     // replay/ramp a thrust profile, no in-loop attitude feedback
-	AttitudePID = 1,  // close on pitch-from-upright
-};
+#include <stdlib.h>
+#include <string.h>
 
-// MAVLink custom main mode value for MANUAL (PX4_CUSTOM_MAIN_MODE_MANUAL); used for the handoff
-// DO_SET_MODE. Hardcoded to avoid a build dependency on the commander header.
-static constexpr float CUSTOM_MAIN_MODE_MANUAL = 1.f;
+// Max time in Verify for the preconditions to pass before giving up and disarming.
+static constexpr float VERIFY_TIMEOUT_S = 1.f;
+
+// Magic param2 for COMPONENT_ARM_DISARM: force, i.e. skip the "not landed" disarm refusal
+// (see Commander::disarm()). The land detector cannot be trusted floating on water.
+static constexpr float FORCE_ARM_DISARM_MAGIC = 21196.f;
 
 SelfRight::SelfRight() :
 	ModuleParams(nullptr),
@@ -94,9 +93,7 @@ void SelfRight::resetManeuver()
 	_over_center = false;
 	_tilt_integral = 0.f;
 	_tilt_last_error_valid = false;
-	_pid_integral = 0.f;
-	_theta_prev = NAN;
-	_theta_min = NAN;
+	_last_disarm_request = 0;
 }
 
 void SelfRight::Run()
@@ -121,8 +118,27 @@ void SelfRight::Run()
 	if (!_param_sr_en.get() || !modeActive(status)) {
 		// Not our mode: stay inert and let the normal allocation path own the outputs.
 		if (_state != State::Idle) {
+			// Stop the wing where it is — the tilt actuator is a rate plant that would keep
+			// integrating the last command forever.
+			publishTiltNeutral();
 			resetManeuver();
 		}
+
+		// Manual tilt hold (console `tilt` command): keep the wing position loop closed on the
+		// encoder in any mode and arming state — it must keep holding while armed in MANUAL so
+		// the wing resists prop thrust during a hand-flown righting. Motors are never touched.
+		const bool manual_hold = _manual_tilt_active.load();
+		sensor_encoder_s enc;
+
+		if (manual_hold && _sensor_encoder_sub.copy(&enc)) {
+			_tilt_angle = enc.angle;
+			commandTilt(_manual_tilt_sp_mrad.load() * 1e-3f, enc.angle, dt);
+
+		} else if (!manual_hold && _manual_tilt_was_active) {
+			publishTiltNeutral();
+		}
+
+		_manual_tilt_was_active = manual_hold;
 
 		publishStatus();
 		perf_end(_loop_perf);
@@ -141,13 +157,9 @@ void SelfRight::Run()
 	_pitch_rate = ang_vel.xyz[1];
 	_tilt_angle = have_enc ? enc.angle : _tilt_angle;
 
-	// Over-center: latched once pitch-from-upright drops below the tipping angle.
-	if (PX4_ISFINITE(_theta)) {
-		_theta_min = PX4_ISFINITE(_theta_min) ? fminf(_theta_min, _theta) : _theta;
-
-		if (_theta < _param_sr_overctr.get()) {
-			_over_center = true;
-		}
+	// Over-center: latched once pitch-from-upright drops below the tipping angle while thrusting.
+	if (_state == State::Righting && PX4_ISFINITE(_theta) && _theta < _param_sr_overctr.get()) {
+		_over_center = true;
 	}
 
 	const float measured_tilt = have_enc ? enc.angle : 0.f;
@@ -155,74 +167,81 @@ void SelfRight::Run()
 
 	switch (_state) {
 	case State::Idle:
-		// Just entered the active mode: arm the maneuver; RotateWing drives it next cycle.
-		_attempt_thrust = _param_sr_adapt_en.get()
-				  ? math::constrain(_param_sr_thr_lrn.get(), 0.f, _param_sr_thr_max.get())
-				  : _param_sr_thr_max.get();
-		_state = State::RotateWing;
+		// Just entered the active mode. The state machine owns the tilt from here on — drop any
+		// console-commanded hold.
+		_manual_tilt_active.store(false);
+		_manual_tilt_was_active = false;
+		_state = State::Verify;
 		_state_start = now;
 		_abort_reason = self_right_status_s::ABORT_NONE;
 		_over_center = false;
-		_theta_min = _theta;
 		publishMotors(0.f);
+		break;
+
+	case State::Verify:
+		// Nothing moves until the preconditions hold.
+		publishMotors(0.f);
+
+		if (stickOverride()) {
+			_abort_reason = self_right_status_s::ABORT_STICK;
+			_state = State::Disarm; // nothing has moved: no Cut needed
+			_state_start = now;
+
+		} else if (verifyPreconditions()) {
+			_state = State::RotateWing;
+			_state_start = now;
+
+		} else if (t_in_state > VERIFY_TIMEOUT_S) {
+			_abort_reason = self_right_status_s::ABORT_VERIFY_FAIL;
+			_state = State::Disarm;
+			_state_start = now;
+		}
+
 		break;
 
 	case State::RotateWing:
 		commandTilt(_param_sr_tilt_sp.get(), measured_tilt, dt);
 		publishMotors(0.f);
 
-		if (checkAbort(t_in_state)) {
+		if (stickOverride()) {
+			_abort_reason = self_right_status_s::ABORT_STICK;
 			_state = State::Cut;
 			_state_start = now;
 
-		} else if (fabsf(measured_tilt - _param_sr_tilt_sp.get()) < _param_sr_tilt_tol.get()
-			   || t_in_state > _param_sr_tilt_tmo.get()) {
+		} else if (fabsf(measured_tilt - _param_sr_tilt_sp.get()) < _param_sr_tilt_tol.get()) {
 			_state = State::Righting;
 			_state_start = now;
-			_maneuver_start = now;
-			_pid_integral = 0.f;
-			_theta_prev = _theta;
+
+		} else if (t_in_state > _param_sr_tilt_tmo.get()) {
+			// The wing never reached props-up: abort — never thrust with the props in an
+			// unknown position.
+			_abort_reason = self_right_status_s::ABORT_TILT_TIMEOUT;
+			_state = State::Cut;
+			_state_start = now;
 		}
 
 		break;
 
 	case State::Righting: {
-			// Keep the wing held props-up while thrusting.
+			// Keep the wing held props-up while ramping symmetric thrust.
 			commandTilt(_param_sr_tilt_sp.get(), measured_tilt, dt);
 
-			const float throttle = computeRightingThrottle(t_in_state, _theta, dt);
-			publishMotors(throttle);
-			_theta_prev = _theta;
+			const float ramp = (_param_sr_ramp_t.get() > 0.01f)
+					   ? math::min(t_in_state / _param_sr_ramp_t.get(), 1.f) : 1.f;
+			publishMotors(ramp * _param_sr_thr_max.get());
 
-			const float t_in_maneuver = (now - _maneuver_start) * 1e-6f;
-
-			if (checkAbort(t_in_maneuver)) {
+			if (stickOverride()) {
+				_abort_reason = self_right_status_s::ABORT_STICK;
 				_state = State::Cut;
 				_state_start = now;
 
 			} else if (_over_center) {
 				// Success: the flip is committed. Cut and let buoyancy settle it upright.
-				if (_param_sr_adapt_en.get()) {
-					// Latch the successful (minimum-so-far) thrust.
-					float lrn = _attempt_thrust;
-					param_set(param_find("SR_THR_LRN"), &lrn);
-				}
-
-				_abort_reason = self_right_status_s::ABORT_NONE;
 				_state = State::Cut;
 				_state_start = now;
 
-			} else if (t_in_maneuver > _param_sr_timeout.get()) {
-				// Failed to reach over-center within budget: cut and (if adaptive) step thrust up.
-				_abort_reason = self_right_status_s::ABORT_TIMEOUT;
-
-				if (_param_sr_adapt_en.get()) {
-					float lrn = math::min(_param_sr_thr_lrn.get() + _param_sr_thr_step.get(),
-							      _param_sr_thr_max.get());
-					param_set(param_find("SR_THR_LRN"), &lrn);
-					_attempt++;
-				}
-
+			} else if (t_in_state > _param_sr_timeout.get()) {
+				_abort_reason = self_right_status_s::ABORT_RIGHTING_TIMEOUT;
 				_state = State::Cut;
 				_state_start = now;
 			}
@@ -235,16 +254,29 @@ void SelfRight::Run()
 		publishMotors(0.f);
 		commandTilt(_param_sr_tilt_park.get(), measured_tilt, dt);
 
-		if (t_in_state > 0.5f) {
-			_state = State::Done;
+		if (stickOverride()
+		    || (t_in_state > 0.5f
+			&& fabsf(measured_tilt - _param_sr_tilt_park.get()) < _param_sr_tilt_tol.get())
+		    || t_in_state > _param_sr_tilt_tmo.get()) {
+			_state = State::Disarm;
 			_state_start = now;
 		}
 
 		break;
 
-	case State::Done:
+	case State::Disarm:
 		publishMotors(0.f);
-		requestManual(); // hand back to MANUAL; commander switching nav_state ends the maneuver
+
+		if (_last_disarm_request == 0 || (now - _last_disarm_request) > 500_ms) {
+			// Neutral tilt first: the maneuver no longer drives the position loop, and the
+			// rate-plant actuator must not keep running on the last correction.
+			publishTiltNeutral();
+			sendDisarm();
+			_last_disarm_request = now;
+		}
+
+		// Once commander processes the disarm, modeActive() goes false and the top of Run()
+		// resets the state machine to Idle.
 		break;
 	}
 
@@ -252,82 +284,49 @@ void SelfRight::Run()
 	perf_end(_loop_perf);
 }
 
-float SelfRight::computeRightingThrottle(float t_in_state, float theta, float dt)
+bool SelfRight::verifyPreconditions()
 {
-	const float ramp = (_param_sr_ramp_t.get() > 0.01f)
-			   ? math::min(t_in_state / _param_sr_ramp_t.get(), 1.f) : 1.f;
+	const hrt_abstime now = hrt_absolute_time();
 
-	if ((Strategy)_param_sr_strategy.get() == Strategy::AttitudePID) {
-		float derivative = 0.f;
+	// Inverted: same test as commander's entry gate (selfRightingCheck) — the body +Z axis points
+	// down in the world by at least SR_INV_THR. cos(theta) is exactly dcm_z(q)(2).
+	const bool inverted = PX4_ISFINITE(_theta) && cosf(_theta) < -_param_sr_inv_thr.get();
 
-		if (PX4_ISFINITE(_theta_prev)) {
-			derivative = (theta - _theta_prev) / dt;
-		}
+	// At rest, with a converged EKF tilt estimate.
+	vehicle_land_detected_s land;
+	const bool at_rest = _vehicle_land_detected_sub.copy(&land) && land.at_rest;
 
-		// Anti-windup: bound the integral so it alone cannot saturate the command.
-		_pid_integral = math::constrain(_pid_integral + theta * dt, 0.f, 5.f);
+	estimator_status_flags_s est_flags;
+	const bool tilt_aligned = _estimator_status_flags_sub.copy(&est_flags) && est_flags.cs_tilt_align;
 
-		const float u = _param_sr_pid_p.get() * theta
-				+ _param_sr_pid_i.get() * _pid_integral
-				+ _param_sr_pid_d.get() * derivative;
+	// Wing encoder fresh and trustworthy — never drive the tilt open-loop.
+	sensor_encoder_s enc;
+	const bool encoder_ok = _sensor_encoder_sub.copy(&enc)
+				&& (now - enc.timestamp) < 1_s
+				&& enc.valid && enc.zeroed;
 
-		return ramp * math::constrain(u, 0.f, _param_sr_thr_max.get());
-	}
+	// Battery healthy enough to spend a high-throttle attempt.
+	battery_status_s bat;
+	const bool battery_ok = _battery_status_sub.copy(&bat)
+				&& (now - bat.timestamp) < 5_s
+				&& bat.connected
+				&& bat.warning < battery_status_s::WARNING_LOW;
 
-	// OpenLoop: ramp to the (possibly adaptively-learned) peak thrust and hold.
-	return ramp * _attempt_thrust;
+	return inverted && at_rest && tilt_aligned && encoder_ok && battery_ok;
 }
 
-bool SelfRight::checkAbort(float t_in_maneuver)
+bool SelfRight::stickOverride()
 {
-	// Pilot stick override (always active).
 	manual_control_setpoint_s manual;
 
 	if (_manual_control_setpoint_sub.copy(&manual) && manual.valid) {
 		const float dz = _param_sr_stick_dz.get();
 
 		if (fabsf(manual.roll) > dz || fabsf(manual.pitch) > dz || fabsf(manual.yaw) > dz) {
-			_abort_reason = self_right_status_s::ABORT_STICK;
 			return true;
 		}
 	}
 
-	// Downward rangefinder backstop (only when SR_RNG_MIN > 0).
-	if (_param_sr_rng_min.get() > 0.f) {
-		distance_sensor_s dist;
-
-		if (_distance_sensor_sub.copy(&dist)
-		    && dist.orientation == distance_sensor_s::ROTATION_DOWNWARD_FACING
-		    && dist.signal_quality != 0
-		    && dist.current_distance < _param_sr_rng_min.get()) {
-			_abort_reason = self_right_status_s::ABORT_RANGEFINDER;
-			return true;
-		}
-	}
-
-	// Estimator clipping: degrades the attitude the PID strategy depends on. OpenLoop replay
-	// uses no in-loop attitude, so it is allowed to continue.
-	if ((Strategy)_param_sr_strategy.get() == Strategy::AttitudePID) {
-		vehicle_imu_s imu;
-		estimator_status_flags_s est_flags;
-		bool bad_accel = false;
-
-		if (_vehicle_imu_sub.copy(&imu) && imu.delta_velocity_clipping != 0) {
-			bad_accel = true;
-		}
-
-		if (_estimator_status_flags_sub.copy(&est_flags)
-		    && (est_flags.fs_bad_acc_clipping || est_flags.fs_bad_acc_vertical)) {
-			bad_accel = true;
-		}
-
-		if (bad_accel) {
-			_abort_reason = self_right_status_s::ABORT_ESTIMATOR;
-			return true;
-		}
-	}
-
-	(void)t_in_maneuver; // timeout is handled in the Righting state to distinguish adaptive fail
 	return false;
 }
 
@@ -377,6 +376,26 @@ void SelfRight::commandTilt(float setpoint_rad, float measured_rad, float dt)
 	_last_tilt_publish = now;
 }
 
+void SelfRight::publishTiltNeutral()
+{
+	// The wing actuator is a rate plant: a zero command stops it where it is.
+	vehicle_command_s cmd{};
+	cmd.timestamp = hrt_absolute_time();
+	cmd.command = vehicle_command_s::VEHICLE_CMD_DO_SET_ACTUATOR;
+	cmd.param1 = 0.f;
+	cmd.param2 = NAN;
+	cmd.param3 = NAN;
+	cmd.param4 = NAN;
+	cmd.param5 = NAN;
+	cmd.param6 = NAN;
+	cmd.param7 = 0.f; // actuator set index
+	cmd.from_external = false;
+	_vehicle_command_pub.publish(cmd);
+
+	_last_tilt_cmd = 0.f;
+	_last_tilt_publish = cmd.timestamp;
+}
+
 void SelfRight::publishMotors(float throttle)
 {
 	throttle = math::constrain(throttle, 0.f, 1.f);
@@ -398,17 +417,16 @@ void SelfRight::publishMotors(float throttle)
 	_cmd_throttle = throttle;
 }
 
-void SelfRight::requestManual()
+void SelfRight::sendDisarm()
 {
 	vehicle_status_s status{};
 	_vehicle_status_sub.copy(&status);
 
 	vehicle_command_s cmd{};
 	cmd.timestamp = hrt_absolute_time();
-	cmd.command = vehicle_command_s::VEHICLE_CMD_DO_SET_MODE;
-	cmd.param1 = 1.f; // base mode: custom mode enabled
-	cmd.param2 = CUSTOM_MAIN_MODE_MANUAL;
-	cmd.param3 = NAN;
+	cmd.command = vehicle_command_s::VEHICLE_CMD_COMPONENT_ARM_DISARM;
+	cmd.param1 = (float)vehicle_command_s::ARMING_ACTION_DISARM;
+	cmd.param2 = FORCE_ARM_DISARM_MAGIC;
 	cmd.target_system = status.system_id;
 	cmd.target_component = status.component_id;
 	cmd.source_system = status.system_id;
@@ -422,7 +440,6 @@ void SelfRight::publishStatus()
 	self_right_status_s status{};
 	status.timestamp = hrt_absolute_time();
 	status.state = (uint8_t)_state;
-	status.strategy = (uint8_t)_param_sr_strategy.get();
 	status.abort_reason = _abort_reason;
 	status.pitch_from_upright = _theta;
 	status.pitch_rate = _pitch_rate;
@@ -430,20 +447,21 @@ void SelfRight::publishStatus()
 	status.throttle = _cmd_throttle;
 	status.over_center = _over_center;
 	status.active = _state != State::Idle;
-	status.learned_thrust = _param_sr_thr_lrn.get();
-	status.attempt = _attempt;
 	_self_right_status_pub.publish(status);
 }
 
 int SelfRight::print_status()
 {
 	const float r2d = 180.f / (float)M_PI;
-	PX4_INFO("state: %d  strategy: %d  over_center: %d  abort: %d",
-		 (int)_state, (int)_param_sr_strategy.get(), _over_center, _abort_reason);
+	PX4_INFO("state: %d  over_center: %d  abort: %d",
+		 (int)_state, _over_center, _abort_reason);
 	PX4_INFO("theta: %.1f deg  pitch_rate: %.2f rad/s  tilt: %.1f deg",
 		 (double)(_theta * r2d), (double)_pitch_rate, (double)(_tilt_angle * r2d));
-	PX4_INFO("adaptive: en %d  learned_thrust %.2f  attempt %d",
-		 (int)_param_sr_adapt_en.get(), (double)_param_sr_thr_lrn.get(), _attempt);
+
+	if (_manual_tilt_active.load()) {
+		PX4_INFO("manual tilt hold: %.1f deg", (double)(_manual_tilt_sp_mrad.load() * 1e-3f * r2d));
+	}
+
 	perf_print_counter(_loop_perf);
 	return 0;
 }
@@ -473,6 +491,37 @@ int SelfRight::task_spawn(int argc, char *argv[])
 
 int SelfRight::custom_command(int argc, char *argv[])
 {
+	if (argc >= 1 && strcmp(argv[0], "tilt") == 0) {
+		if (argc < 2) {
+			return print_usage("tilt: missing angle");
+		}
+
+		SelfRight *inst = get_instance();
+
+		if (!is_running() || inst == nullptr) {
+			PX4_ERR("not running");
+			return PX4_ERROR;
+		}
+
+		if (strcmp(argv[1], "off") == 0) {
+			inst->_manual_tilt_active.store(false);
+			PX4_INFO("tilt: released");
+			return PX4_OK;
+		}
+
+		char *end = nullptr;
+		const float deg = strtof(argv[1], &end);
+
+		if (end == argv[1] || *end != '\0') {
+			return print_usage("tilt: invalid angle");
+		}
+
+		inst->_manual_tilt_sp_mrad.store((int32_t)roundf(math::radians(deg) * 1000.f));
+		inst->_manual_tilt_active.store(true);
+		PX4_INFO("tilt: driving wing to %.1f deg and holding (use `tilt off` to release)", (double)deg);
+		return PX4_OK;
+	}
+
 	return print_usage("unknown command");
 }
 
@@ -486,15 +535,19 @@ int SelfRight::print_usage(const char *reason)
 		R"DESCR_STR(
 ### Description
 Autonomous self-righting controller for the tilt-wing aircraft. Active in the SELF_RIGHT flight
-mode (enterable only when commander reports the aircraft inverted and at rest): rotates the wing so
-the props point up, uses symmetric propeller thrust to drive the airframe past its over-center
-tipping point, then cuts throttle and hands back to MANUAL. Selectable righting strategies
-(SR_STRATEGY): open-loop thrust replay, or PID on pitch-from-upright, with an optional adaptive
-minimum-thrust learning layer. See .CLAUDE/self_right_architecture.md.
+mode (enterable only when commander reports the aircraft inverted and at rest): verifies the
+preconditions (inverted, at rest, EKF tilt-aligned, fresh wing encoder, battery OK), rotates the
+wing so the props point up, ramps symmetric propeller thrust to drive the airframe past its
+over-center tipping point, then cuts throttle, parks the wing and force-disarms. Every exit path
+(success, timeout, verify failure, pilot stick override) ends in a disarm.
+See documentation/self_right_architecture.md.
 )DESCR_STR");
 
 	PRINT_MODULE_USAGE_NAME("self_right", "controller");
 	PRINT_MODULE_USAGE_COMMAND("start");
+	PRINT_MODULE_USAGE_COMMAND_DESCR("tilt", "Manually drive and hold the wing at an angle (encoder position loop; "
+					 "works in any mode/arming state, released automatically when the maneuver starts)");
+	PRINT_MODULE_USAGE_ARG("<deg>|off", "Wing angle in degrees, or 'off' to release the hold", false);
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
 	return 0;

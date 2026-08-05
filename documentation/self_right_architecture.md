@@ -1,7 +1,7 @@
 # Autonomous Self-Righting Mode — Controller Architecture & Gate Logic
 
 > Tilt-wing twin-tractor. Recovers the aircraft from an **inverted, at-rest float on the water** to
-> upright, using **propeller thrust only**, then hands back to MANUAL. This document is the design
+> upright, using **propeller thrust only**, then **safely disarms**. This document is the design
 > reference for the `self_right` module and its commander gate. Keep it in sync with the code.
 
 ## 0. Problem & approach
@@ -17,6 +17,10 @@ the inverted float and the upright float are **both stable equilibria**, separat
 **tipping point**. We therefore do not need to "flip and catch" — we only need enough thrust to push
 the CG **past over-center**, after which buoyancy + gravity settle the aircraft upright on their own.
 The controller's job is to detect over-center and then *get out of the way*.
+
+The design is deliberately minimal: **one righting law** (open-loop throttle ramp with an
+attitude-based cut), an explicit **verify** step before anything moves, and **every exit path ends in
+a forced disarm** — success, timeout, verify failure, or pilot stick override.
 
 ## 1. System context (reused infrastructure)
 
@@ -34,12 +38,11 @@ The controller's job is to detect over-center and then *get out of the way*.
 - Body frame FRD; `vehicle_attitude.q` is body→NED (Hamilton, `q[0]=w`).
 - **Pitch-from-upright `θ`** is derived from `Quaternion(q).dcm_z()` (body +Z expressed in NED):
   upright → `dcm_z()(2) ≈ +1`, inverted → `≈ −1`. Using `dcm_z` avoids Euler gimbal-lock at ±90°
-  pitch — exactly the region traversed. The in-plane components give the flip direction.
-- **Pitch rate `q_body`** from `vehicle_angular_velocity` (body Y) — the trusted signal under high
-  thrust, when the accelerometer is expected to clip (see §6).
+  pitch — exactly the region traversed.
+- **Pitch rate `q_body`** from `vehicle_angular_velocity` (body Y) — logged for diagnostics.
 - **Tilt angle `θ_tilt`** from `sensor_encoder.angle`.
 
-## 3. Gate logic (latched)
+## 3. Gate logic (latched) + module-side verify
 
 Enterable **only** when inverted AND at rest, but **not droppable mid-maneuver**. Implemented as a
 commander `HealthAndArmingCheck` (`selfRightingCheck`) that owns the `can_run` bit for
@@ -47,7 +50,6 @@ commander `HealthAndArmingCheck` (`selfRightingCheck`) that owns the `can_run` b
 
 ```
 inverted = dcm_z(q)(2) < -SR_INV_THR                          # e.g. SR_INV_THR = 0.7
-           && accel_body_z sign agrees (vehicle_acceleration) # cross-check vs. a bad quaternion
 at_rest  = vehicle_land_detected.at_rest
            && estimator_status_flags.cs_tilt_align
 entry_ok = inverted && at_rest
@@ -58,108 +60,112 @@ can_run  = entry_ok || (vehicle_status.nav_state == NAVIGATION_STATE_SELF_RIGHT)
   but because we are already in the mode `can_run` stays true and commander does not eject us.
 - Mode requirements: `mode_req_attitude` + `mode_req_angular_velocity` only — **no** position / global
   / home (none are trustworthy inverted on water).
-- Exit is driven by the module (→ MANUAL), never by the gate going false.
+- Exit is driven by the module (forced disarm), never by the gate going false.
+
+On top of the gate, the module runs its own **VERIFY state** on entry, before anything moves. All of
+the following must hold within a 1 s window, else it disarms without moving:
+
+1. **Inverted** — `cos(θ) < -SR_INV_THR` (same test as the gate).
+2. **At rest** — `vehicle_land_detected.at_rest`.
+3. **EKF tilt aligned** — `estimator_status_flags.cs_tilt_align`.
+4. **Encoder fresh + trustworthy** — `sensor_encoder` newer than 1 s, `valid`, `zeroed`. The wing is
+   never driven open-loop.
+5. **Battery OK** — `battery_status` (primary instance) fresh, `connected`, warning below
+   `WARNING_LOW`.
 
 ## 4. Maneuver controller — state machine
 
-Active only while `nav_state == NAVIGATION_STATE_SELF_RIGHT`. One `ScheduledWorkItem` loop. The
-`RIGHTING` state dispatches to the law chosen by `SR_STRATEGY`; everything else is shared.
+Active only while `nav_state == NAVIGATION_STATE_SELF_RIGHT`. One `ScheduledWorkItem` loop (100 Hz).
 
 ```
         ┌─────────┐ enter mode (gate already passed)
-        │ ROTATE  │  tilt PID drives θ_tilt → SR_TILT_SP (~π/2, props up)
-        │  WING   │  next when |θ_tilt-SR_TILT_SP| < SR_TILT_TOL  or  t > SR_TILT_TIMEOUT
+        │ VERIFY  │  preconditions (§3), motors off, wing untouched
+        │         │  pass → ROTATE WING;  >1 s without pass → DISARM (nothing moved)
         └────┬────┘
              ▼
-        ┌─────────┐  SR_STRATEGY dispatch:
-        │RIGHTING │    0 OPEN_LOOP_REPLAY → replay recorded thr(t)  (× adaptive factor)
-        │         │    1 ATTITUDE_PID     → thr = clamp(PID(θ_err), 0, SR_THR_MAX)
-        │         │  done when over_center && θ < tol   (or trajectory end)
-        └────┬────┘  fail (adaptive) when t > SR_TIMEOUT && !over_center → bump SR_THR_LRN
+        ┌─────────┐
+        │ ROTATE  │  tilt PID drives θ_tilt → SR_TILT_SP (~π/2, props up), motors off
+        │  WING   │  |θ_tilt−SP| < SR_TILT_TOL → RIGHTING
+        └────┬────┘  t > SR_TILT_TMO → CUT (FAILURE — never thrust with the props misplaced)
+             ▼
+        ┌─────────┐
+        │RIGHTING │  hold wing up; thr = min(t/SR_RAMP_T, 1) · SR_THR_MAX
+        │         │  over_center (θ < SR_OVERCTR, latched) → CUT (success)
+        └────┬────┘  t > SR_TIMEOUT → CUT (failure)
              ▼
         ┌─────────┐  throttle → 0, wing → SR_TILT_PARK (retracts props from the swept arc)
-        │   CUT   │  buoyancy + gravity settle the upright float
-        └────┬────┘
+        │   CUT   │  buoyancy + gravity settle the float
+        └────┬────┘  parked (or SR_TILT_TMO) → DISARM
              ▼
-        ┌─────────┐  publish vehicle_command → set MANUAL
-        │  DONE   │
+        ┌─────────┐  neutral tilt command, forced COMPONENT_ARM_DISARM (param2 = 21196),
+        │ DISARM  │  re-sent every 500 ms until commander reports disarmed → IDLE
         └─────────┘
 ```
 
-**`over_center`** (shared success/stop signal): `θ` has crossed below `SR_OVERCTR` and keeps
-decreasing — i.e. the CG passed the unstable tipping point and the upright float will complete the
-settle without thrust.
+**Pilot stick override** (any roll/pitch/yaw beyond `SR_STICK_DZ`) is checked in VERIFY, ROTATE WING,
+RIGHTING and CUT: it immediately routes to CUT (or straight to DISARM if nothing has moved yet).
+Switching flight modes on the RC also ends the maneuver instantly — the module resets, stops
+publishing motors and sends a neutral tilt command.
+
+**`over_center`**: `θ` has crossed below `SR_OVERCTR` while thrusting — the CG passed the unstable
+tipping point and the upright float will complete the settle without thrust.
 
 ## 5. Control laws
 
 - **Tilt loop (ROTATE_WING / park):** small position PID on `sensor_encoder.angle` → normalized
   `DO_SET_ACTUATOR` param1, same shape as `SunTracker`'s PID (the actuator is a *rate* plant, so a
-  position loop is required; reuse those gains as a starting point).
-- **Prop moment:** **symmetric** thrust — `actuator_motors.control[i] = thr` (equal on both tractors).
-  Equal thrust through the tilted (~90°) thrust line, offset from the CG along Z, produces a
-  **pitching** moment — exactly the flip axis. Differential thrust is *not* used for righting (it is a
-  yaw control).
-- **Strategy 0 — OPEN_LOOP_REPLAY:** `thr(t)` is a time-indexed table extracted from a successful
-  manual/SITL run (`Tools/self_right/extract_trajectory.py`). No live attitude in the loop → most
-  robust to the estimator degradation in §6. The recorded trajectory already ends in a safe cut. With
-  adaptive enabled, the table is scaled by the learned peak-thrust factor.
-- **Strategy 1 — ATTITUDE_PID:** `thr = clamp(Kp·θ_err + Ki·∫θ_err + Kd·θ̇_err, 0, SR_THR_MAX)` with
-  target upright (`θ_err = θ`). One-directional: thrust can only add a flip moment, never reverse, so
-  it relies on buoyancy to arrest past center; throttle naturally decays as `θ → 0`.
-- **Adaptive thrust learning** (wraps OPEN_LOOP / fixed ramp): monotone **step-up line search** across
-  attempts. `thr_peak = SR_THR_LRN` (init `SR_THR_INIT`); on **fail** (timeout, no `over_center`)
-  `SR_THR_LRN += SR_THR_STEP`; on **success** latch; bisect once bracketed; hard cap `SR_THR_MAX`.
-  Safe because a failed (under-thrust) attempt never crosses center — the props stay up and the
-  airframe re-settles inverted, re-arming the gate for the next, slightly stronger attempt. Converges
-  to the **minimum** sufficient thrust = the gentlest, least-slam flip.
+  position loop is required). Because the plant is a rate source, a **neutral (zero) command** is
+  published whenever the module stops driving the loop (disarm, mode exit, `tilt off`) so the wing
+  can never run away on a stale correction.
+- **Prop moment:** **symmetric** thrust — `actuator_motors.control[0..1] = thr` (equal on both
+  tractors). Equal thrust through the tilted (~90°) thrust line, offset from the CG along Z, produces
+  a **pitching** moment — exactly the flip axis.
+- **Righting law (the only one):** ramp the throttle linearly over `SR_RAMP_T` to `SR_THR_MAX` and
+  hold; cut on over-center or `SR_TIMEOUT`. Seed `SR_THR_MAX` / `SR_RAMP_T` / `SR_OVERCTR` /
+  `SR_TIMEOUT` from a logged successful manual righting.
 
 ## 6. Sensor-trust model during the maneuver
 
-- EKF2 `vehicle_attitude` (`dcm_z`) is trusted for the gate, ROTATE_WING, the PID strategy, and the
-  over-center test — all relatively low rate. **OPEN_LOOP_REPLAY uses no in-loop attitude**, so it is
-  the fallback when the estimator is least trustworthy.
-- Under high thrust the accelerometer is expected to exceed 1 g and **clip**; EKF gravity fusion
-  self-disables and attitude rides on gyro integration for a few seconds. Body pitch-rate `q_body`
-  (gyro) is the most reliable in-maneuver signal and backs the over-center "keeps decreasing" test.
+- EKF2 `vehicle_attitude` (`dcm_z`) is trusted for the gate, VERIFY and the over-center test.
+- Under high thrust the accelerometer may exceed 1 g and clip; EKF gravity fusion self-disables and
+  attitude rides on gyro integration for a few seconds — good enough for the single over-center
+  threshold test. `SR_TIMEOUT` backstops the case where attitude goes bad entirely.
 - Yaw is **not** trusted inverted (mag / GNSS-yaw degraded); the controller never uses heading.
 
-## 7. Abort & override (all fail safe: CUT → MANUAL)
+## 7. Abort & override (all paths end in a forced disarm)
 
-- **Stick override:** any `manual_control_setpoint` axis beyond `SR_STICK_DZ` → immediate cut.
-- **Rangefinder backstop:** downward `distance_sensor` clearance < `SR_RNG_MIN` → reflex cut (if a
-  sensor is present; `SR_RNG_MIN = 0` disables). The only signal that directly senses the water.
-- **Estimator unsafe:** `vehicle_imu.delta_velocity_clipping != 0` OR
-  `estimator_status_flags.fs_bad_acc_*` → cut for ATTITUDE_PID (attitude untrustworthy); OPEN_LOOP may
-  continue (operator-selectable).
-- **Backstop timeout:** elapsed > `SR_TIMEOUT` → cut; also the per-attempt fail signal for adaptive.
+- **Stick override:** any `manual_control_setpoint` axis beyond `SR_STICK_DZ` → immediate cut → park
+  → disarm.
+- **Tilt timeout:** wing not at props-up within `SR_TILT_TMO` → abort **before any thrust**.
+- **Righting timeout:** no over-center within `SR_TIMEOUT` → cut → park → disarm.
+- **Verify failure:** preconditions (§3) not met within 1 s of mode entry → disarm, nothing moved.
 
-On any abort: `actuator_motors` → 0, wing → `SR_TILT_PARK`, command MANUAL.
+The disarm is a `VEHICLE_CMD_COMPONENT_ARM_DISARM` with **param2 = 21196 (force)** — this skips
+`Commander::disarm()`'s "not landed" refusal, which cannot be trusted floating on water. The command
+is re-sent every 500 ms until commander reports disarmed.
 
 ## 8. Parameters (`SR_*`, declared in `self_right/module.yaml`)
 
 | Group | Params |
 |---|---|
-| Enable / select | `SR_EN`, `SR_STRATEGY` (0 = open-loop replay, 1 = attitude PID) |
-| Gate | `SR_INV_THR` (inverted `dcm_z` threshold) |
-| Tilt | `SR_TILT_SP`, `SR_TILT_PARK`, `SR_TILT_TOL`, `SR_TILT_TIMEOUT`, tilt PID gains |
-| Righting / cut | `SR_THR_MAX` (hard ceiling), `SR_RAMP_T`, `SR_OVERCTR` (tipping angle), `SR_TIMEOUT` |
-| Attitude PID | `SR_PID_P`, `SR_PID_I`, `SR_PID_D` |
-| Adaptive | `SR_ADAPT_EN`, `SR_THR_INIT`, `SR_THR_STEP`, `SR_THR_LRN` (persisted learned thrust) |
-| Safety | `SR_STICK_DZ`, `SR_RNG_MIN` (rangefinder clearance cut, 0 = disabled) |
+| Enable | `SR_EN` |
+| Gate / verify | `SR_INV_THR` (inverted `dcm_z` threshold) |
+| Tilt | `SR_TILT_SP`, `SR_TILT_PARK`, `SR_TILT_TOL`, `SR_TILT_TMO`, `SR_KP/KI/KD` |
+| Righting / cut | `SR_THR_MAX` (peak throttle), `SR_RAMP_T`, `SR_OVERCTR` (tipping angle), `SR_TIMEOUT` |
+| Safety | `SR_STICK_DZ` (pilot override deadzone) |
 
 ## 9. Telemetry
 
-`SelfRightStatus` publishes: state-machine state, active strategy, `θ` (pitch-from-upright),
-`q_body`, `θ_tilt`, commanded throttle, `over_center` flag, adaptive `SR_THR_LRN` and attempt
-number/result, and active abort reason — for live tuning and post-flight log analysis.
+`SelfRightStatus` publishes: state-machine state, `θ` (pitch-from-upright), `q_body`, `θ_tilt`,
+commanded throttle, `over_center` flag, and the active abort reason — for live tuning and post-test
+log analysis.
 
 ## 10. Bring-up order (safety)
 
-1. **Phase 0 (no code):** record 2–3 manual rightings in MANUAL mode; extract thrust profile, peak
-   pitch rate, tipping angle, total duration, and whether EKF attitude survives the thrust. These seed
-   `SR_THR_*`, `SR_OVERCTR`, `SR_TIMEOUT`, tilt PID.
-2. **SITL:** validate the latched gate (rejected upright, accepted inverted+at-rest), then each
-   strategy; confirm the latch holds when `at_rest` drops, stick override, and all aborts.
-3. **Hardware bench:** confirm the wing reaches ≥90° and props spin up under the mode.
-4. **First water trials:** OPEN_LOOP replay of a known-good manual trajectory, RC manual-cut mapped as
-   the ultimate backstop. Enable adaptive only after replay is trusted.
+1. **Manual reference:** record a successful manual righting; extract peak throttle, ramp time,
+   tipping angle and total duration to seed `SR_THR_MAX`, `SR_RAMP_T`, `SR_OVERCTR`, `SR_TIMEOUT`.
+2. **Hardware bench (props off):** `self_right tilt` regression; gate rejects upright; inverted entry
+   runs VERIFY → ROTATE WING → RIGHTING; stick wiggle aborts and **disarms** (even with the land
+   detector not reporting landed); unplugged encoder fails VERIFY without moving the wing.
+3. **First water trials:** pilot places the aircraft inverted wings-level, arms, selects SELF_RIGHT;
+   RC sticks are the ultimate backstop (any deflection = cut + disarm).

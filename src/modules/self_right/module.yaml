@@ -8,19 +8,10 @@ parameters:
           long: |
             Starts the self_right module and exposes the SELF_RIGHT flight mode. The mode can only
             be entered while the estimator reports the aircraft inverted and at rest; see
-            .CLAUDE/self_right_architecture.md.
+            documentation/self_right_architecture.md.
         type: boolean
         default: 0
         reboot_required: true
-
-      SR_STRATEGY:
-        description:
-          short: Righting control law
-        type: enum
-        values:
-          0: Open-loop replay (recorded thrust trajectory)
-          1: Attitude PID (close on pitch-from-upright)
-        default: 1
 
       SR_INV_THR:
         description:
@@ -71,7 +62,11 @@ parameters:
 
       SR_TILT_TMO:
         description:
-          short: Max time to reach the props-up tilt before proceeding anyway
+          short: Max time for the wing to reach the props-up tilt
+          long: |
+            If the wing has not reached SR_TILT_SP within this time the maneuver is aborted (throttle
+            stays at zero, wing parks, vehicle disarms). Also bounds the wing-park phase after the
+            attempt.
         type: float
         unit: s
         min: 0.5
@@ -112,7 +107,8 @@ parameters:
 
       SR_THR_MAX:
         description:
-          short: Maximum (hard ceiling) symmetric motor throttle during righting
+          short: Peak symmetric motor throttle during righting
+          long: The righting law ramps to this throttle over SR_RAMP_T and holds it until cut.
         type: float
         min: 0.0
         max: 1.0
@@ -148,7 +144,9 @@ parameters:
       SR_TIMEOUT:
         description:
           short: Maximum righting duration before a fail-safe cut
-          long: Backstop. Also the per-attempt failure trigger for the adaptive thrust search.
+          long: |
+            If over-center is not reached within this time the throttle is cut, the wing parks and
+            the vehicle disarms.
         type: float
         unit: s
         min: 1.0
@@ -157,98 +155,15 @@ parameters:
         increment: 0.5
         default: 6.0
 
-      SR_PID_P:
-        description:
-          short: Attitude-PID strategy proportional gain (pitch error -> throttle)
-        type: float
-        min: 0.0
-        max: 10.0
-        decimal: 3
-        increment: 0.01
-        default: 0.6
-
-      SR_PID_I:
-        description:
-          short: Attitude-PID strategy integral gain
-        type: float
-        min: 0.0
-        max: 10.0
-        decimal: 3
-        increment: 0.01
-        default: 0.1
-
-      SR_PID_D:
-        description:
-          short: Attitude-PID strategy derivative gain
-        type: float
-        min: 0.0
-        max: 10.0
-        decimal: 3
-        increment: 0.01
-        default: 0.05
-
-      SR_ADAPT_EN:
-        description:
-          short: Enable adaptive (iterative-learning) thrust search
-          long: |
-            Across attempts, start at SR_THR_INIT and step up by SR_THR_STEP on each failed
-            (no over-center) attempt until the flip succeeds, capped at SR_THR_MAX. Wraps the
-            open-loop / ramp law. Has no effect on the attitude-PID strategy.
-        type: boolean
-        default: 0
-
-      SR_THR_INIT:
-        description:
-          short: Initial (conservative) peak throttle for the adaptive search
-        type: float
-        min: 0.0
-        max: 1.0
-        decimal: 2
-        increment: 0.05
-        default: 0.5
-
-      SR_THR_STEP:
-        description:
-          short: Throttle increment per failed adaptive attempt
-        type: float
-        min: 0.01
-        max: 0.5
-        decimal: 2
-        increment: 0.01
-        default: 0.05
-
-      SR_THR_LRN:
-        description:
-          short: Learned peak throttle (persisted by the adaptive search)
-          long: Updated at runtime by the adaptive search; seed equals SR_THR_INIT on first use.
-        type: float
-        min: 0.0
-        max: 1.0
-        decimal: 2
-        increment: 0.05
-        default: 0.5
-
       SR_STICK_DZ:
         description:
           short: Manual stick deadzone for pilot override
-          long: Any roll/pitch/yaw stick beyond this magnitude aborts the maneuver to MANUAL.
+          long: |
+            Any roll/pitch/yaw stick beyond this magnitude aborts the maneuver: throttle cut, wing
+            parked, vehicle disarmed.
         type: float
         min: 0.05
         max: 0.9
         decimal: 2
         increment: 0.05
         default: 0.15
-
-      SR_RNG_MIN:
-        description:
-          short: Minimum downward rangefinder clearance before a reflex cut
-          long: |
-            If a downward distance_sensor reports clearance below this, the maneuver cuts throttle
-            immediately (props approaching water). 0 disables the rangefinder backstop.
-        type: float
-        unit: m
-        min: 0.0
-        max: 5.0
-        decimal: 2
-        increment: 0.05
-        default: 0.0
