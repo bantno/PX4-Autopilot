@@ -112,9 +112,11 @@ tipping point and the upright float will complete the settle without thrust.
 
 ## 5. Control laws
 
-- **Tilt loop (ROTATE_WING / park):** small position PID on `sensor_encoder.angle` → normalized
-  `DO_SET_ACTUATOR` param1, same shape as `SunTracker`'s PID (the actuator is a *rate* plant, so a
-  position loop is required). Because the plant is a rate source, a **neutral (zero) command** is
+- **Tilt loop (ROTATE_WING / park):** small position PID on the de-geared `sensor_encoder.angle` →
+  normalized `DO_SET_ACTUATOR` param1 — the same 20 Hz loop as `SunTracker`, **sharing its
+  `SUN_KP/KI/KD`, `SUN_DEADBAND` and `SUN_GEAR_RATIO` tune** (same physical actuator and encoder;
+  the actuator is a *rate* plant, so a position loop is required). Because the plant is a rate
+  source, a **neutral (zero) command** is
   published whenever the module stops driving the loop (disarm, mode exit, `tilt off`) so the wing
   can never run away on a stale correction.
 - **Prop moment:** **symmetric** thrust — `actuator_motors.control[0..1] = thr` (equal on both
@@ -150,7 +152,7 @@ is re-sent every 500 ms until commander reports disarmed.
 |---|---|
 | Enable | `SR_EN` |
 | Gate / verify | `SR_INV_THR` (inverted `dcm_z` threshold) |
-| Tilt | `SR_TILT_SP`, `SR_TILT_PARK`, `SR_TILT_TOL`, `SR_TILT_TMO`, `SR_KP/KI/KD` |
+| Tilt | `SR_TILT_SP`, `SR_TILT_PARK`, `SR_TILT_TOL`, `SR_TILT_TMO`; loop tune shared from the sun tracker (`SUN_KP/KI/KD`, `SUN_DEADBAND`, `SUN_GEAR_RATIO`) |
 | Righting / cut | `SR_THR_MAX` (peak throttle), `SR_RAMP_T`, `SR_OVERCTR` (tipping angle), `SR_TIMEOUT` |
 | Safety | `SR_STICK_DZ` (pilot override deadzone) |
 

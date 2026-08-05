@@ -1,6 +1,7 @@
 menuconfig MODULES_SELF_RIGHT
 	bool "self_right"
 	default n
+	depends on MODULES_SUN_TRACKER
 	---help---
 		Enable the autonomous self-righting controller. Recovers a tilt-wing aircraft from an
 		inverted, at-rest float to upright using propeller thrust only: rotates the wing so the

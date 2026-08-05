@@ -116,7 +116,8 @@ private:
 	bool stickOverride();
 
 	// Drive the wing tilt position loop toward `setpoint_rad` (publishes DO_SET_ACTUATOR).
-	void commandTilt(float setpoint_rad, float measured_rad, float dt);
+	// Self-paced at the sun tracker's 20 Hz cadence; angles are in the wing frame.
+	void commandTilt(float setpoint_rad, float measured_rad);
 
 	// Publish a zero (neutral) tilt command so the rate-source wing actuator stops moving.
 	void publishTiltNeutral();
@@ -152,12 +153,14 @@ private:
 	hrt_abstime _state_start{0};         // time the current State was entered
 	hrt_abstime _last_disarm_request{0}; // Disarm state: last COMPONENT_ARM_DISARM sent (500 ms retry)
 
-	// Tilt position loop state (mirrors SunTracker's PID).
+	// Tilt position loop state (mirrors SunTracker's PID; shares its SUN_* tune).
+	float _encoder_to_wing{1.f};   // 1 / SUN_GEAR_RATIO, resolved once in init()
 	float _tilt_integral{0.f};
 	float _tilt_last_error{0.f};
 	bool _tilt_last_error_valid{false};
 	float _last_tilt_cmd{NAN};
 	hrt_abstime _last_tilt_publish{0};
+	hrt_abstime _last_tilt_loop{0};
 
 	// Manual tilt hold (console `tilt` command; written from the console thread, read in Run()).
 	// Lets the pilot position and actively hold the wing (e.g. props-up for a hand-flown
@@ -181,9 +184,13 @@ private:
 		(ParamFloat<px4::params::SR_TILT_PARK>) _param_sr_tilt_park,
 		(ParamFloat<px4::params::SR_TILT_TOL>) _param_sr_tilt_tol,
 		(ParamFloat<px4::params::SR_TILT_TMO>) _param_sr_tilt_tmo,
-		(ParamFloat<px4::params::SR_KP>) _param_sr_kp,
-		(ParamFloat<px4::params::SR_KI>) _param_sr_ki,
-		(ParamFloat<px4::params::SR_KD>) _param_sr_kd,
+		// Tilt loop tune shared with the sun tracker — same physical actuator/encoder,
+		// so one set of gains serves both (self_right Kconfig depends on sun_tracker).
+		(ParamFloat<px4::params::SUN_KP>) _param_sun_kp,
+		(ParamFloat<px4::params::SUN_KI>) _param_sun_ki,
+		(ParamFloat<px4::params::SUN_KD>) _param_sun_kd,
+		(ParamFloat<px4::params::SUN_DEADBAND>) _param_sun_deadband,
+		(ParamFloat<px4::params::SUN_GEAR_RATIO>) _param_sun_gear,
 		(ParamFloat<px4::params::SR_THR_MAX>) _param_sr_thr_max,
 		(ParamFloat<px4::params::SR_RAMP_T>) _param_sr_ramp_t,
 		(ParamFloat<px4::params::SR_OVERCTR>) _param_sr_overctr,

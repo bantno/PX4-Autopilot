@@ -59,7 +59,13 @@ SelfRight::~SelfRight()
 
 bool SelfRight::init()
 {
+	// SUN_GEAR_RATIO is fixed mechanical configuration (reboot_required); resolve the
+	// encoder->wing conversion once, like SunTracker does.
+	const float gear_ratio = _param_sun_gear.get();
+	_encoder_to_wing = (gear_ratio > 0.01f) ? (1.f / gear_ratio) : 1.f;
+
 	// 100 Hz: fast enough for the righting control loop and a steady actuator_motors stream.
+	// The tilt position loop inside commandTilt() self-paces at the sun tracker's 20 Hz.
 	ScheduleOnInterval(10_ms);
 	return true;
 }
@@ -93,6 +99,7 @@ void SelfRight::resetManeuver()
 	_over_center = false;
 	_tilt_integral = 0.f;
 	_tilt_last_error_valid = false;
+	_last_tilt_loop = 0;
 	_last_disarm_request = 0;
 }
 
@@ -142,7 +149,7 @@ void SelfRight::Run()
 		const bool have_enc = _sensor_encoder_sub.copy(&enc);
 
 		if (have_enc) {
-			_tilt_angle = enc.angle;
+			_tilt_angle = enc.angle * _encoder_to_wing;
 		}
 
 		// Manual tilt hold (console `tilt` command): keep the wing position loop closed on the
@@ -151,7 +158,7 @@ void SelfRight::Run()
 		const bool manual_hold = _manual_tilt_active.load();
 
 		if (manual_hold && have_enc) {
-			commandTilt(_manual_tilt_sp_mrad.load() * 1e-3f, enc.angle, dt);
+			commandTilt(_manual_tilt_sp_mrad.load() * 1e-3f, _tilt_angle);
 
 		} else if (!manual_hold && _manual_tilt_was_active) {
 			publishTiltNeutral();
@@ -174,14 +181,14 @@ void SelfRight::Run()
 
 	_theta = have_att ? pitchFromUpright(att) : _theta;
 	_pitch_rate = ang_vel.xyz[1];
-	_tilt_angle = have_enc ? enc.angle : _tilt_angle;
+	_tilt_angle = have_enc ? (enc.angle * _encoder_to_wing) : _tilt_angle;
 
 	// Over-center: latched once pitch-from-upright drops below the tipping angle while thrusting.
 	if (_state == State::Righting && PX4_ISFINITE(_theta) && _theta < _param_sr_overctr.get()) {
 		_over_center = true;
 	}
 
-	const float measured_tilt = have_enc ? enc.angle : 0.f;
+	const float measured_tilt = have_enc ? (enc.angle * _encoder_to_wing) : 0.f;
 	const float t_in_state = (now - _state_start) * 1e-6f;
 
 	switch (_state) {
@@ -219,7 +226,7 @@ void SelfRight::Run()
 		break;
 
 	case State::RotateWing:
-		commandTilt(_param_sr_tilt_sp.get(), measured_tilt, dt);
+		commandTilt(_param_sr_tilt_sp.get(), measured_tilt);
 		publishMotors(0.f);
 
 		if (stickOverride()) {
@@ -243,7 +250,7 @@ void SelfRight::Run()
 
 	case State::Righting: {
 			// Keep the wing held props-up while ramping symmetric thrust.
-			commandTilt(_param_sr_tilt_sp.get(), measured_tilt, dt);
+			commandTilt(_param_sr_tilt_sp.get(), measured_tilt);
 
 			const float ramp = (_param_sr_ramp_t.get() > 0.01f)
 					   ? math::min(t_in_state / _param_sr_ramp_t.get(), 1.f) : 1.f;
@@ -271,7 +278,7 @@ void SelfRight::Run()
 	case State::Cut:
 		// Throttle off, retract the wing toward park (clears the props from the swept arc).
 		publishMotors(0.f);
-		commandTilt(_param_sr_tilt_park.get(), measured_tilt, dt);
+		commandTilt(_param_sr_tilt_park.get(), measured_tilt);
 
 		if (stickOverride()
 		    || (t_in_state > 0.5f
@@ -349,28 +356,39 @@ bool SelfRight::stickOverride()
 	return false;
 }
 
-void SelfRight::commandTilt(float setpoint_rad, float measured_rad, float dt)
+void SelfRight::commandTilt(float setpoint_rad, float measured_rad)
 {
-	// Position loop on the encoder feedback -> normalized rate command for the tilt ESC,
-	// same structure as SunTracker (the tilt actuator is a rate-source plant).
-	const float error = matrix::wrap_pi(setpoint_rad - measured_rad);
+	// Position loop on the encoder feedback -> normalized rate command for the tilt ESC. Same
+	// loop as SunTracker, sharing its SUN_* tune (same physical actuator/encoder): 20 Hz
+	// cadence, error deadband against ESC dither, PID with clamped integral.
+	const hrt_abstime now = hrt_absolute_time();
 
-	_tilt_integral = math::constrain(_tilt_integral + _param_sr_ki.get() * error * dt, -1.f, 1.f);
+	if (_last_tilt_loop != 0 && (now - _last_tilt_loop) < 50_ms) {
+		return;
+	}
+
+	float dt = (_last_tilt_loop > 0) ? (now - _last_tilt_loop) * 1e-6f : 0.05f;
+	dt = math::constrain(dt, 0.001f, 0.2f);
+	_last_tilt_loop = now;
+
+	const float error = matrix::wrap_pi(setpoint_rad - measured_rad);
+	const float error_eff = (fabsf(error) < _param_sun_deadband.get()) ? 0.f : error;
+
+	_tilt_integral = math::constrain(_tilt_integral + _param_sun_ki.get() * error_eff * dt, -1.f, 1.f);
 
 	float derivative = 0.f;
 
 	if (_tilt_last_error_valid) {
-		derivative = (error - _tilt_last_error) / dt;
+		derivative = (error_eff - _tilt_last_error) / dt;
 	}
 
-	_tilt_last_error = error;
+	_tilt_last_error = error_eff;
 	_tilt_last_error_valid = true;
 
-	const float u = math::constrain(_param_sr_kp.get() * error + _tilt_integral
-					+ _param_sr_kd.get() * derivative, -1.f, 1.f);
+	const float u = math::constrain(_param_sun_kp.get() * error_eff + _tilt_integral
+					+ _param_sun_kd.get() * derivative, -1.f, 1.f);
 
 	// Rate-limit the DO_SET_ACTUATOR traffic (commander ACKs each one), like SunTracker.
-	const hrt_abstime now = hrt_absolute_time();
 	const bool changed = !PX4_ISFINITE(_last_tilt_cmd) || (fabsf(u - _last_tilt_cmd) > 0.005f);
 	const bool heartbeat = (now - _last_tilt_publish) > 200_ms;
 

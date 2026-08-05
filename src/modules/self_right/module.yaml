@@ -75,35 +75,8 @@ parameters:
         increment: 0.5
         default: 5.0
 
-      SR_KP:
-        description:
-          short: Wing tilt position loop proportional gain
-        type: float
-        min: 0.0
-        max: 20.0
-        decimal: 3
-        increment: 0.01
-        default: 2.0
-
-      SR_KI:
-        description:
-          short: Wing tilt position loop integral gain
-        type: float
-        min: 0.0
-        max: 20.0
-        decimal: 3
-        increment: 0.01
-        default: 0.0
-
-      SR_KD:
-        description:
-          short: Wing tilt position loop derivative gain
-        type: float
-        min: 0.0
-        max: 20.0
-        decimal: 3
-        increment: 0.01
-        default: 0.0
+      # The wing tilt position loop shares the sun tracker's tune (SUN_KP/KI/KD, SUN_DEADBAND,
+      # SUN_GEAR_RATIO) — same physical actuator and encoder, one set of gains for both.
 
       SR_THR_MAX:
         description:
