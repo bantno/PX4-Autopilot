@@ -108,13 +108,16 @@ parameters:
       SR_THR_MAX:
         description:
           short: Peak symmetric motor throttle during righting
-          long: The righting law ramps to this throttle over SR_RAMP_T and holds it until cut.
+          long: |
+            The righting law ramps to this throttle over SR_RAMP_T and holds it until cut. The
+            2026-07-24 pool log shows full throttle is required: 0.56 sustained for 10 s did not
+            move the airframe past 161 deg.
         type: float
         min: 0.0
         max: 1.0
         decimal: 2
         increment: 0.05
-        default: 0.9
+        default: 1.0
 
       SR_RAMP_T:
         description:
@@ -133,27 +136,31 @@ parameters:
           long: |
             Pitch-from-upright angle below which the CG is considered to have passed the unstable
             tipping point; buoyancy+gravity then settle the aircraft upright without thrust.
+            From the 2026-07-24 pool log: a manual cut at ~90 deg completed cleanly, while an
+            attempt that only touched ~107 deg fell back inverted — 1.4 rad (80 deg) commits with
+            margin on both sides.
         type: float
         unit: rad
         min: 0.2
         max: 2.5
         decimal: 3
         increment: 0.05
-        default: 1.2
+        default: 1.4
 
       SR_TIMEOUT:
         description:
           short: Maximum righting duration before a fail-safe cut
           long: |
             If over-center is not reached within this time the throttle is cut, the wing parks and
-            the vehicle disarms.
+            the vehicle disarms. The successful manual flip took ~2.7 s from throttle-up to the cut
+            (2026-07-24 pool log); 5 s is that with ~2x margin.
         type: float
         unit: s
         min: 1.0
         max: 30.0
         decimal: 1
         increment: 0.5
-        default: 6.0
+        default: 5.0
 
       SR_STICK_DZ:
         description:
