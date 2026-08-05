@@ -48,6 +48,34 @@ parameters:
         increment: 0.001
         default: 0.01
 
+      TILT_ARM_V:
+        description:
+          short: ESC arming sequence command magnitude
+          long: |
+            The reversible tilt ESC arms only after seeing a command below neutral and then above
+            neutral. The controller runs that sequence (-TILT_ARM_V for TILT_ARM_T seconds, then
+            +TILT_ARM_V for TILT_ARM_T, then neutral) every time the vehicle outputs go live
+            (arming/prearming) — before that the output pin is pinned to the disarmed neutral, so
+            a boot-time sequence would never reach the ESC. Setpoints are not serviced until the
+            sequence completes. 0 disables it.
+        type: float
+        min: 0.0
+        max: 1.0
+        decimal: 2
+        increment: 0.05
+        default: 0.2
+
+      TILT_ARM_T:
+        description:
+          short: ESC arming sequence per-phase duration
+        type: float
+        unit: s
+        min: 0.05
+        max: 2.0
+        decimal: 2
+        increment: 0.05
+        default: 0.3
+
       TILT_GEAR:
         description:
           short: Encoder-to-wing gear ratio (encoder turns per wing turn)

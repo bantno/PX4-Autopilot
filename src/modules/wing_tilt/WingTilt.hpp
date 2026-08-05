@@ -58,6 +58,7 @@
 #include <uORB/Publication.hpp>
 #include <uORB/Subscription.hpp>
 #include <uORB/SubscriptionInterval.hpp>
+#include <uORB/topics/actuator_armed.h>
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/sensor_encoder.h>
 #include <uORB/topics/vehicle_command.h>
@@ -97,6 +98,7 @@ private:
 	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
 	uORB::Subscription _wing_tilt_setpoint_sub{ORB_ID(wing_tilt_setpoint)};
 	uORB::Subscription _sensor_encoder_sub{ORB_ID(sensor_encoder)};
+	uORB::Subscription _actuator_armed_sub{ORB_ID(actuator_armed)};
 
 	uORB::Publication<vehicle_command_s> _vehicle_command_pub{ORB_ID(vehicle_command)};
 	uORB::Publication<wing_tilt_status_s> _wing_tilt_status_pub{ORB_ID(wing_tilt_status)};
@@ -120,6 +122,12 @@ private:
 	float _last_output{NAN};
 	hrt_abstime _last_publish{0};
 
+	// ESC arming sequence (below neutral, then above, then neutral): the reversible tilt ESC
+	// only arms after seeing this, and the AUX pin is pinned to the disarmed neutral until the
+	// vehicle outputs go live — so the sequence runs on every disarmed->live transition.
+	bool _outputs_live_prev{false};
+	hrt_abstime _esc_arm_start{0};   // 0 = sequence not running
+
 	// Diagnostics; angles in radians.
 	uint8_t _active_source{wing_tilt_status_s::SOURCE_NONE};
 	float _setpoint{NAN};
@@ -135,6 +143,8 @@ private:
 		(ParamFloat<px4::params::TILT_KI>) _param_tilt_ki,
 		(ParamFloat<px4::params::TILT_KD>) _param_tilt_kd,
 		(ParamFloat<px4::params::TILT_DB>) _param_tilt_db,
-		(ParamFloat<px4::params::TILT_GEAR>) _param_tilt_gear
+		(ParamFloat<px4::params::TILT_GEAR>) _param_tilt_gear,
+		(ParamFloat<px4::params::TILT_ARM_V>) _param_tilt_arm_v,
+		(ParamFloat<px4::params::TILT_ARM_T>) _param_tilt_arm_t
 	)
 };

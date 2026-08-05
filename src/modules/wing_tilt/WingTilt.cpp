@@ -91,6 +91,50 @@ void WingTilt::Run()
 
 	const hrt_abstime now = hrt_absolute_time();
 
+	// ESC arming sequence: run below-neutral -> above-neutral -> neutral whenever the vehicle
+	// outputs go live (the pin holds the disarmed neutral before that, so a boot-time sequence
+	// would never reach the ESC). Setpoints are not serviced until the sequence completes.
+	actuator_armed_s armed;
+
+	if (_actuator_armed_sub.copy(&armed)) {
+		const bool live = armed.armed || armed.prearmed;
+
+		if (live && !_outputs_live_prev && _param_tilt_arm_v.get() > 0.f) {
+			_esc_arm_start = now;
+			_integral = 0.f;
+			_last_error_valid = false;
+		}
+
+		_outputs_live_prev = live;
+	}
+
+	if (_esc_arm_start != 0) {
+		const float t = (now - _esc_arm_start) * 1e-6f;
+		const float phase_t = _param_tilt_arm_t.get();
+		const float v = _param_tilt_arm_v.get();
+
+		if (t < phase_t) {
+			publishActuator(-v);
+
+		} else if (t < 2.f * phase_t) {
+			publishActuator(v);
+
+		} else {
+			publishActuator(0.f);
+			_esc_arm_start = 0;
+		}
+
+		if (_esc_arm_start != 0) {
+			_active_source = wing_tilt_status_s::SOURCE_NONE;
+			_setpoint = NAN;
+			_error = NAN;
+			_output = _last_output;
+			publishStatus();
+			perf_end(_loop_perf);
+			return;
+		}
+	}
+
 	// Arbitrate: highest-priority source with a fresh setpoint owns the wing.
 	int active = -1;
 
@@ -211,9 +255,10 @@ int WingTilt::print_status()
 {
 	const float r2d = 180.f / (float)M_PI;
 	const char *source_names[NUM_SOURCES] = {"sun_tracker", "console", "self_right"};
-	PX4_INFO("owner: %s  encoder: %s",
+	PX4_INFO("owner: %s  encoder: %s%s",
 		 (_active_source < NUM_SOURCES) ? source_names[_active_source] : "none",
-		 _encoder_valid ? "ok" : "invalid/stale");
+		 _encoder_valid ? "ok" : "invalid/stale",
+		 (_esc_arm_start != 0) ? "  [ESC arming sequence running]" : "");
 	PX4_INFO("tilt: setpoint %6.1f deg  measured %6.1f deg  error %6.1f deg  u %.3f",
 		 (double)(_setpoint * r2d), (double)(_measured_angle * r2d),
 		 (double)(_error * r2d), (double)_output);
