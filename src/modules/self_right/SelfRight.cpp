@@ -124,14 +124,33 @@ void SelfRight::Run()
 			resetManeuver();
 		}
 
+		// Keep the diagnostics (theta, tilt, pitch rate) live while idle so bench checks can
+		// watch them on self_right_status before entering the mode.
+		vehicle_attitude_s att;
+
+		if (_vehicle_attitude_sub.copy(&att)) {
+			_theta = pitchFromUpright(att);
+		}
+
+		vehicle_angular_velocity_s ang_vel;
+
+		if (_vehicle_angular_velocity_sub.copy(&ang_vel)) {
+			_pitch_rate = ang_vel.xyz[1];
+		}
+
+		sensor_encoder_s enc;
+		const bool have_enc = _sensor_encoder_sub.copy(&enc);
+
+		if (have_enc) {
+			_tilt_angle = enc.angle;
+		}
+
 		// Manual tilt hold (console `tilt` command): keep the wing position loop closed on the
 		// encoder in any mode and arming state — it must keep holding while armed in MANUAL so
 		// the wing resists prop thrust during a hand-flown righting. Motors are never touched.
 		const bool manual_hold = _manual_tilt_active.load();
-		sensor_encoder_s enc;
 
-		if (manual_hold && _sensor_encoder_sub.copy(&enc)) {
-			_tilt_angle = enc.angle;
+		if (manual_hold && have_enc) {
 			commandTilt(_manual_tilt_sp_mrad.load() * 1e-3f, enc.angle, dt);
 
 		} else if (!manual_hold && _manual_tilt_was_active) {
