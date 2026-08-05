@@ -24,9 +24,12 @@ a forced disarm** — success, timeout, verify failure, or pilot stick override.
 
 ## 1. System context (reused infrastructure)
 
-- Wing (carrying both tractor props) rotates about **BodyY (pitch)** via a reversible-ESC motor driven
-  through `Peripheral_via_Actuator_Set1` — i.e. a `vehicle_command` `DO_SET_ACTUATOR` (param7 = 0,
-  normalized command in param1). Identical command path to `SunTracker::publishActuator()`.
+- Wing (carrying both tractor props) rotates about **BodyY (pitch)** via a reversible-ESC motor.
+  The **`wing_tilt` module is the single owner of that ESC**: it closes the position loop on the
+  AS5600 encoder (`sensor_encoder`, de-geared by 1/`TILT_GEAR`) and publishes `DO_SET_ACTUATOR` →
+  `Peripheral_via_Actuator_Set1`. Client modules never command the ESC directly — they publish
+  wing-angle setpoints on `wing_tilt_setpoint`, arbitrated by priority (**self_right > console >
+  sun_tracker**) and freshness (a source releases the wing by not republishing for 0.5 s).
 - Wing-angle feedback: AS5600 magnetic encoder → `sensor_encoder` topic (`angle`, boot-zeroed at
   wing-level). In SITL the plant is the `wing_tilt_sim` module (integrates the actuator command into an
   angle and republishes `sensor_encoder`).
@@ -112,13 +115,11 @@ tipping point and the upright float will complete the settle without thrust.
 
 ## 5. Control laws
 
-- **Tilt loop (ROTATE_WING / park):** small position PID on the de-geared `sensor_encoder.angle` →
-  normalized `DO_SET_ACTUATOR` param1 — the same 20 Hz loop as `SunTracker`, **sharing its
-  `SUN_KP/KI/KD`, `SUN_DEADBAND` and `SUN_GEAR_RATIO` tune** (same physical actuator and encoder;
-  the actuator is a *rate* plant, so a position loop is required). Because the plant is a rate
-  source, a **neutral (zero) command** is
-  published whenever the module stops driving the loop (disarm, mode exit, `tilt off`) so the wing
-  can never run away on a stale correction.
+- **Tilt (ROTATE_WING / park):** the module publishes wing-angle setpoints (`SR_TILT_SP`,
+  `SR_TILT_PARK`) to the **`wing_tilt` controller**, which owns the 20 Hz encoder PID
+  (`TILT_KP/KI/KD`, `TILT_DB` error deadband, `TILT_GEAR`). Ownership is released by simply not
+  republishing; the controller then stops the rate-plant actuator with one neutral command, so
+  the wing can never run away on a stale correction.
 - **Prop moment:** **symmetric** thrust — `actuator_motors.control[0..1] = thr` (equal on both
   tractors). Equal thrust through the tilted (~90°) thrust line, offset from the CG along Z, produces
   a **pitching** moment — exactly the flip axis.
@@ -152,7 +153,7 @@ is re-sent every 500 ms until commander reports disarmed.
 |---|---|
 | Enable | `SR_EN` |
 | Gate / verify | `SR_INV_THR` (inverted `dcm_z` threshold) |
-| Tilt | `SR_TILT_SP`, `SR_TILT_PARK`, `SR_TILT_TOL`, `SR_TILT_TMO`; loop tune shared from the sun tracker (`SUN_KP/KI/KD`, `SUN_DEADBAND`, `SUN_GEAR_RATIO`) |
+| Tilt | `SR_TILT_SP`, `SR_TILT_PARK`, `SR_TILT_TOL`, `SR_TILT_TMO`; the position loop lives in the `wing_tilt` module (`TILT_KP/KI/KD`, `TILT_DB`, `TILT_GEAR`) |
 | Righting / cut | `SR_THR_MAX` (peak throttle), `SR_RAMP_T`, `SR_OVERCTR` (tipping angle), `SR_TIMEOUT` |
 | Safety | `SR_STICK_DZ` (pilot override deadzone) |
 

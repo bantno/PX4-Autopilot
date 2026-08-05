@@ -1,0 +1,7 @@
+menuconfig MODULES_WING_TILT
+	bool "wing_tilt"
+	default n
+	---help---
+		Enable the wing tilt controller — the single owner of the tilt motor. Closes a position
+		loop between the AS5600 wing encoder and the reversible tilt ESC, arbitrating wing-angle
+		setpoints published by client modules (sun_tracker, self_right, console holds).

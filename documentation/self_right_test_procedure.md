@@ -8,9 +8,13 @@ Defaults seeded from `pool_self-right_test_22_05_44.ulg` (2026-07-24 manual sess
 1. `param set SYS_AUTOSTART 4244`, `param set SR_EN 1`, (`param set SENS_EN_XM125 1` if the radar
    is wired), `reboot`. The airframe then auto-starts `as5600`, `sun_tracker` (muted), `self_right`,
    `ina226_charger` on every boot, and puts SELF_RIGHT on RC flight-mode slot 6.
-2. Confirm: `self_right status` (state 0), `listener sensor_encoder` (`valid`, `zeroed`),
+2. Confirm: `self_right status` (state 0), `wing_tilt status` (owner none / encoder ok),
+   `listener sensor_encoder` (`valid`, `zeroed`),
    `param show SR_*` (THR_MAX 1.0, OVERCTR 1.4, TIMEOUT 5.0, TILT_SP 1.57, STICK_DZ 0.15),
    `SUN_TRK_EN` = 0.
+   The tilt servo loop lives in the `wing_tilt` module: copy any tuned values from the old
+   SUN_KP/KI/KD/SUN_DEADBAND/SUN_GEAR_RATIO into TILT_KP/KI/KD/TILT_DB/TILT_GEAR (defaults:
+   2.0 / 0 / 0 / 0.01 / 1.0).
 3. **Boot-position convention: power on with the wing LEVEL, every time.** The encoder zeroes at
    boot; `SR_TILT_SP 1.57` means "+90 deg from boot position". (Pool day 2026-07-24 booted
    props-up — that is why the encoder read ~0 during the flip.)

@@ -124,6 +124,7 @@ param set-default SUN_TRK_EN 0
 # hardware, so it is a no-op there (the real AS5600 provides the feedback instead).
 as5600 start -X
 wing_tilt_sim start
+wing_tilt start
 sun_tracker start
 
 # Autonomous self-righting (props-only inverted recovery). Shares the tilt-wing actuator/encoder

@@ -1,7 +1,8 @@
 menuconfig MODULES_SUN_TRACKER
 	bool "sun_tracker"
 	default n
+	depends on MODULES_WING_TILT
 	---help---
 		Enable the sun-tracking tilt-wing controller. Points a tilt-actuated solar surface at
-		the sun using GPS position, UTC time and vehicle attitude, closing a position loop on an
-		AS5600 encoder and driving a dedicated reversible ESC.
+		the sun using GPS position, UTC time and vehicle attitude, publishing wing-angle
+		setpoints to the wing_tilt controller (which owns the encoder loop and the tilt ESC).

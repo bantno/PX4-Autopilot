@@ -59,13 +59,13 @@ SelfRight::~SelfRight()
 
 bool SelfRight::init()
 {
-	// SUN_GEAR_RATIO is fixed mechanical configuration (reboot_required); resolve the
-	// encoder->wing conversion once, like SunTracker does.
-	const float gear_ratio = _param_sun_gear.get();
+	// TILT_GEAR is fixed mechanical configuration (reboot_required); resolve the encoder->wing
+	// conversion once, matching the wing_tilt controller.
+	const float gear_ratio = _param_tilt_gear.get();
 	_encoder_to_wing = (gear_ratio > 0.01f) ? (1.f / gear_ratio) : 1.f;
 
 	// 100 Hz: fast enough for the righting control loop and a steady actuator_motors stream.
-	// The tilt position loop inside commandTilt() self-paces at the sun tracker's 20 Hz.
+	// Wing tilt setpoints are rate-limited to the wing_tilt controller's 20 Hz.
 	ScheduleOnInterval(10_ms);
 	return true;
 }
@@ -97,9 +97,7 @@ void SelfRight::resetManeuver()
 	_state = State::Idle;
 	_abort_reason = self_right_status_s::ABORT_NONE;
 	_over_center = false;
-	_tilt_integral = 0.f;
-	_tilt_last_error_valid = false;
-	_last_tilt_loop = 0;
+	_last_tilt_sp_publish = 0;
 	_last_disarm_request = 0;
 }
 
@@ -123,11 +121,9 @@ void SelfRight::Run()
 	_last_run = now;
 
 	if (!_param_sr_en.get() || !modeActive(status)) {
-		// Not our mode: stay inert and let the normal allocation path own the outputs.
+		// Not our mode: stay inert and let the normal allocation path own the outputs. The
+		// wing_tilt controller stops the wing once our setpoints go stale.
 		if (_state != State::Idle) {
-			// Stop the wing where it is — the tilt actuator is a rate plant that would keep
-			// integrating the last command forever.
-			publishTiltNeutral();
 			resetManeuver();
 		}
 
@@ -152,19 +148,14 @@ void SelfRight::Run()
 			_tilt_angle = enc.angle * _encoder_to_wing;
 		}
 
-		// Manual tilt hold (console `tilt` command): keep the wing position loop closed on the
-		// encoder in any mode and arming state — it must keep holding while armed in MANUAL so
-		// the wing resists prop thrust during a hand-flown righting. Motors are never touched.
-		const bool manual_hold = _manual_tilt_active.load();
-
-		if (manual_hold && have_enc) {
-			commandTilt(_manual_tilt_sp_mrad.load() * 1e-3f, _tilt_angle);
-
-		} else if (!manual_hold && _manual_tilt_was_active) {
-			publishTiltNeutral();
+		// Manual tilt hold (console `tilt` command): keep requesting the hold angle from the
+		// wing_tilt controller in any mode and arming state — it must keep holding while armed
+		// in MANUAL so the wing resists prop thrust during a hand-flown righting. Motors are
+		// never touched; `tilt off` releases by letting the setpoint go stale.
+		if (_manual_tilt_active.load()) {
+			publishTiltSetpoint(wing_tilt_setpoint_s::SOURCE_CONSOLE,
+					    _manual_tilt_sp_mrad.load() * 1e-3f);
 		}
-
-		_manual_tilt_was_active = manual_hold;
 
 		publishStatus();
 		perf_end(_loop_perf);
@@ -194,9 +185,8 @@ void SelfRight::Run()
 	switch (_state) {
 	case State::Idle:
 		// Just entered the active mode. The state machine owns the tilt from here on — drop any
-		// console-commanded hold.
+		// console-commanded hold (our maneuver setpoints outrank console ones anyway).
 		_manual_tilt_active.store(false);
-		_manual_tilt_was_active = false;
 		_state = State::Verify;
 		_state_start = now;
 		_abort_reason = self_right_status_s::ABORT_NONE;
@@ -226,7 +216,7 @@ void SelfRight::Run()
 		break;
 
 	case State::RotateWing:
-		commandTilt(_param_sr_tilt_sp.get(), measured_tilt);
+		publishTiltSetpoint(wing_tilt_setpoint_s::SOURCE_SELF_RIGHT, _param_sr_tilt_sp.get());
 		publishMotors(0.f);
 
 		if (stickOverride()) {
@@ -250,7 +240,7 @@ void SelfRight::Run()
 
 	case State::Righting: {
 			// Keep the wing held props-up while ramping symmetric thrust.
-			commandTilt(_param_sr_tilt_sp.get(), measured_tilt);
+			publishTiltSetpoint(wing_tilt_setpoint_s::SOURCE_SELF_RIGHT, _param_sr_tilt_sp.get());
 
 			const float ramp = (_param_sr_ramp_t.get() > 0.01f)
 					   ? math::min(t_in_state / _param_sr_ramp_t.get(), 1.f) : 1.f;
@@ -278,7 +268,7 @@ void SelfRight::Run()
 	case State::Cut:
 		// Throttle off, retract the wing toward park (clears the props from the swept arc).
 		publishMotors(0.f);
-		commandTilt(_param_sr_tilt_park.get(), measured_tilt);
+		publishTiltSetpoint(wing_tilt_setpoint_s::SOURCE_SELF_RIGHT, _param_sr_tilt_park.get());
 
 		if (stickOverride()
 		    || (t_in_state > 0.5f
@@ -292,11 +282,10 @@ void SelfRight::Run()
 
 	case State::Disarm:
 		publishMotors(0.f);
+		// Keep the wing held at park while the disarm goes through.
+		publishTiltSetpoint(wing_tilt_setpoint_s::SOURCE_SELF_RIGHT, _param_sr_tilt_park.get());
 
 		if (_last_disarm_request == 0 || (now - _last_disarm_request) > 500_ms) {
-			// Neutral tilt first: the maneuver no longer drives the position loop, and the
-			// rate-plant actuator must not keep running on the last correction.
-			publishTiltNeutral();
 			sendDisarm();
 			_last_disarm_request = now;
 		}
@@ -356,81 +345,21 @@ bool SelfRight::stickOverride()
 	return false;
 }
 
-void SelfRight::commandTilt(float setpoint_rad, float measured_rad)
+void SelfRight::publishTiltSetpoint(uint8_t source, float angle)
 {
-	// Position loop on the encoder feedback -> normalized rate command for the tilt ESC. Same
-	// loop as SunTracker, sharing its SUN_* tune (same physical actuator/encoder): 20 Hz
-	// cadence, error deadband against ESC dither, PID with clamped integral.
+	// The wing_tilt controller runs at 20 Hz — publishing faster only fills its queue.
 	const hrt_abstime now = hrt_absolute_time();
 
-	if (_last_tilt_loop != 0 && (now - _last_tilt_loop) < 50_ms) {
+	if (_last_tilt_sp_publish != 0 && (now - _last_tilt_sp_publish) < 50_ms) {
 		return;
 	}
 
-	float dt = (_last_tilt_loop > 0) ? (now - _last_tilt_loop) * 1e-6f : 0.05f;
-	dt = math::constrain(dt, 0.001f, 0.2f);
-	_last_tilt_loop = now;
-
-	const float error = matrix::wrap_pi(setpoint_rad - measured_rad);
-	const float error_eff = (fabsf(error) < _param_sun_deadband.get()) ? 0.f : error;
-
-	_tilt_integral = math::constrain(_tilt_integral + _param_sun_ki.get() * error_eff * dt, -1.f, 1.f);
-
-	float derivative = 0.f;
-
-	if (_tilt_last_error_valid) {
-		derivative = (error_eff - _tilt_last_error) / dt;
-	}
-
-	_tilt_last_error = error_eff;
-	_tilt_last_error_valid = true;
-
-	const float u = math::constrain(_param_sun_kp.get() * error_eff + _tilt_integral
-					+ _param_sun_kd.get() * derivative, -1.f, 1.f);
-
-	// Rate-limit the DO_SET_ACTUATOR traffic (commander ACKs each one), like SunTracker.
-	const bool changed = !PX4_ISFINITE(_last_tilt_cmd) || (fabsf(u - _last_tilt_cmd) > 0.005f);
-	const bool heartbeat = (now - _last_tilt_publish) > 200_ms;
-
-	if (!changed && !heartbeat) {
-		return;
-	}
-
-	vehicle_command_s cmd{};
-	cmd.timestamp = now;
-	cmd.command = vehicle_command_s::VEHICLE_CMD_DO_SET_ACTUATOR;
-	cmd.param1 = u; // -> Peripheral_via_Actuator_Set1 (PWM_AUX_FUNCx = 301)
-	cmd.param2 = NAN;
-	cmd.param3 = NAN;
-	cmd.param4 = NAN;
-	cmd.param5 = NAN;
-	cmd.param6 = NAN;
-	cmd.param7 = 0.f; // actuator set index
-	cmd.from_external = false;
-	_vehicle_command_pub.publish(cmd);
-
-	_last_tilt_cmd = u;
-	_last_tilt_publish = now;
-}
-
-void SelfRight::publishTiltNeutral()
-{
-	// The wing actuator is a rate plant: a zero command stops it where it is.
-	vehicle_command_s cmd{};
-	cmd.timestamp = hrt_absolute_time();
-	cmd.command = vehicle_command_s::VEHICLE_CMD_DO_SET_ACTUATOR;
-	cmd.param1 = 0.f;
-	cmd.param2 = NAN;
-	cmd.param3 = NAN;
-	cmd.param4 = NAN;
-	cmd.param5 = NAN;
-	cmd.param6 = NAN;
-	cmd.param7 = 0.f; // actuator set index
-	cmd.from_external = false;
-	_vehicle_command_pub.publish(cmd);
-
-	_last_tilt_cmd = 0.f;
-	_last_tilt_publish = cmd.timestamp;
+	wing_tilt_setpoint_s sp{};
+	sp.timestamp = now;
+	sp.source = source;
+	sp.angle = angle;
+	_wing_tilt_setpoint_pub.publish(sp);
+	_last_tilt_sp_publish = now;
 }
 
 void SelfRight::publishMotors(float throttle)

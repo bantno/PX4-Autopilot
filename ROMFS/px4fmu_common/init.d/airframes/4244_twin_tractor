@@ -121,6 +121,7 @@ param set-default SUN_TRK_EN 0
 # Sun tracker startup. 'as5600' is the AS5600 wing-angle encoder on external I2C bus 4
 # (-X external, -b 4 bus number). 'sun_tracker' gates on valid attitude/GPS/encoder data
 # until SUN_TRK_EN is set.
+wing_tilt start
 as5600 start -X -b 4
 sun_tracker start
 

@@ -70,6 +70,7 @@
 #include <uORB/topics/vehicle_command.h>
 #include <uORB/topics/vehicle_land_detected.h>
 #include <uORB/topics/vehicle_status.h>
+#include <uORB/topics/wing_tilt_setpoint.h>
 
 using namespace time_literals;
 
@@ -115,12 +116,9 @@ private:
 	// True if the pilot moved any stick beyond SR_STICK_DZ (manual override).
 	bool stickOverride();
 
-	// Drive the wing tilt position loop toward `setpoint_rad` (publishes DO_SET_ACTUATOR).
-	// Self-paced at the sun tracker's 20 Hz cadence; angles are in the wing frame.
-	void commandTilt(float setpoint_rad, float measured_rad);
-
-	// Publish a zero (neutral) tilt command so the rate-source wing actuator stops moving.
-	void publishTiltNeutral();
+	// Publish a wing-angle setpoint to the wing_tilt controller (rate-limited to its 20 Hz).
+	// The controller closes the encoder loop; ownership is released by simply not republishing.
+	void publishTiltSetpoint(uint8_t source, float angle);
 
 	// Publish symmetric motor throttle on actuator_motors (NaN past the two tractors = disarmed).
 	void publishMotors(float throttle);
@@ -142,6 +140,7 @@ private:
 	uORB::Subscription _battery_status_sub{ORB_ID(battery_status)};
 
 	uORB::Publication<vehicle_command_s> _vehicle_command_pub{ORB_ID(vehicle_command)};
+	uORB::Publication<wing_tilt_setpoint_s> _wing_tilt_setpoint_pub{ORB_ID(wing_tilt_setpoint)};
 	uORB::Publication<actuator_motors_s> _actuator_motors_pub{ORB_ID(actuator_motors)};
 	uORB::Publication<self_right_status_s> _self_right_status_pub{ORB_ID(self_right_status)};
 
@@ -153,21 +152,15 @@ private:
 	hrt_abstime _state_start{0};         // time the current State was entered
 	hrt_abstime _last_disarm_request{0}; // Disarm state: last COMPONENT_ARM_DISARM sent (500 ms retry)
 
-	// Tilt position loop state (mirrors SunTracker's PID; shares its SUN_* tune).
-	float _encoder_to_wing{1.f};   // 1 / SUN_GEAR_RATIO, resolved once in init()
-	float _tilt_integral{0.f};
-	float _tilt_last_error{0.f};
-	bool _tilt_last_error_valid{false};
-	float _last_tilt_cmd{NAN};
-	hrt_abstime _last_tilt_publish{0};
-	hrt_abstime _last_tilt_loop{0};
+	// Wing frame conversion and setpoint pacing (the wing_tilt controller owns the PID).
+	float _encoder_to_wing{1.f};        // 1 / TILT_GEAR, resolved once in init()
+	hrt_abstime _last_tilt_sp_publish{0};
 
 	// Manual tilt hold (console `tilt` command; written from the console thread, read in Run()).
 	// Lets the pilot position and actively hold the wing (e.g. props-up for a hand-flown
 	// righting) using the same encoder position loop the maneuver uses. Never touches motors.
 	px4::atomic_bool _manual_tilt_active{false};
 	px4::atomic<int32_t> _manual_tilt_sp_mrad{0}; // setpoint in millirad (atomic<float> unsupported)
-	bool _manual_tilt_was_active{false};          // for the neutral command on hold release
 
 	// Diagnostics.
 	float _theta{NAN};
@@ -184,13 +177,8 @@ private:
 		(ParamFloat<px4::params::SR_TILT_PARK>) _param_sr_tilt_park,
 		(ParamFloat<px4::params::SR_TILT_TOL>) _param_sr_tilt_tol,
 		(ParamFloat<px4::params::SR_TILT_TMO>) _param_sr_tilt_tmo,
-		// Tilt loop tune shared with the sun tracker — same physical actuator/encoder,
-		// so one set of gains serves both (self_right Kconfig depends on sun_tracker).
-		(ParamFloat<px4::params::SUN_KP>) _param_sun_kp,
-		(ParamFloat<px4::params::SUN_KI>) _param_sun_ki,
-		(ParamFloat<px4::params::SUN_KD>) _param_sun_kd,
-		(ParamFloat<px4::params::SUN_DEADBAND>) _param_sun_deadband,
-		(ParamFloat<px4::params::SUN_GEAR_RATIO>) _param_sun_gear,
+		// Owned by the wing_tilt controller; read here to interpret the encoder in wing frame.
+		(ParamFloat<px4::params::TILT_GEAR>) _param_tilt_gear,
 		(ParamFloat<px4::params::SR_THR_MAX>) _param_sr_thr_max,
 		(ParamFloat<px4::params::SR_RAMP_T>) _param_sr_ramp_t,
 		(ParamFloat<px4::params::SR_OVERCTR>) _param_sr_overctr,

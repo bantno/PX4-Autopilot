@@ -58,13 +58,7 @@ SunTracker::~SunTracker()
 
 bool SunTracker::init()
 {
-	// SUN_GEAR_RATIO is fixed mechanical configuration (reboot_required), not a runtime knob.
-	// Resolve the encoder->wing conversion factor once here so the control loop never re-reads it.
-	const float gear_ratio = _param_sun_gear.get();
-	_encoder_to_wing = (gear_ratio > 0.01f) ? (1.f / gear_ratio) : 1.f;
-
-	// Slow auxiliary loop: 20 Hz is far faster than wing-tilt dynamics need and keeps
-	// the rate of DO_SET_ACTUATOR commands (which commander ACKs) modest.
+	// Slow auxiliary loop: 20 Hz matches the wing_tilt controller consuming our setpoints.
 	ScheduleOnInterval(50_ms);
 	return true;
 }
@@ -132,9 +126,10 @@ void SunTracker::Run()
 	const bool park = _park_request.load();
 
 	if (!_param_sun_trk_en.get() && !debug_sweep && !park) {
-		// Disabled: leave the ESC at its configured disarmed/failsafe value.
+		// Disabled: publish no setpoint — the wing_tilt controller stops the wing once our
+		// last setpoint goes stale.
 		_status = "disabled";
-		publishStatus(false, false, false, false, false);
+		publishStatus(false, false, false, false);
 		perf_end(_loop_perf);
 		return;
 	}
@@ -143,13 +138,11 @@ void SunTracker::Run()
 	vehicle_global_position_s gpos{};
 	vehicle_local_position_s lpos{};
 	sensor_gps_s gps{};
-	sensor_encoder_s enc{};
 
 	const bool have_att = _vehicle_attitude_sub.copy(&att);
 	const bool have_gpos = _vehicle_global_position_sub.copy(&gpos);
 	const bool have_lpos = _vehicle_local_position_sub.copy(&lpos);
 	const bool have_gps = _sensor_gps_sub.copy(&gps);
-	const bool have_enc = _sensor_encoder_sub.copy(&enc);
 
 	const uint64_t utc_usec = resolveUtcUsec(gps, have_gps);
 
@@ -221,114 +214,45 @@ void SunTracker::Run()
 		pose_ok = true;
 	}
 
-	const bool encoder_valid = have_enc && enc.valid;
+	if (!pose_ok) {
+		// Publish no setpoint while a prerequisite is missing (the wing_tilt controller stops
+		// the wing once ours goes stale). Report the specific missing input so a stuck tracker
+		// is easy to diagnose (no mag -> wait: heading).
+		if (!have_att) {
+			_status = "wait: attitude";
 
-	if (!pose_ok || !encoder_valid) {
-		// Hold a safe neutral command and reset the integrator while we lack a prerequisite. Report
-		// the specific missing input so a stuck tracker is easy to diagnose (no mag -> wait: heading).
-		if (!pose_ok) {
-			if (!have_att) {
-				_status = "wait: attitude";
+		} else if (!time_valid) {
+			_status = "wait: time";
 
-			} else if (!time_valid) {
-				_status = "wait: time";
+		} else if (!pos_valid) {
+			_status = "wait: position";
 
-			} else if (!pos_valid) {
-				_status = "wait: position";
-
-			} else { // !heading_valid
-				_status = "wait: heading";
-			}
-
-		} else {
-			_status = "wait: encoder";
+		} else { // !heading_valid
+			_status = "wait: heading";
 		}
 
-		_integral = 0.f;
-		_last_error_valid = false;
-		_output = 0.f;
-		publishActuator(0.f);
-		publishStatus(_param_sun_trk_en.get(), debug_sweep, pose_ok, heading_valid, encoder_valid);
+		publishStatus(_param_sun_trk_en.get(), debug_sweep, pose_ok, heading_valid);
 		perf_end(_loop_perf);
 		return;
 	}
 
 	_status = park ? "parking" : (debug_sweep ? "DEBUG sweep" : "tracking"); // TEMP DEBUG SWEEP
 
-	// The AS5600 is geared to the wing shaft, so it rotates faster than the wing. Scale the measured
-	// encoder angle back into the wing frame using the factor resolved at init (1 / SUN_GEAR_RATIO),
-	// so the setpoint, tilt limits and deadband all stay in real wing angle. The wing range keeps the
-	// geared encoder angle within +/-pi, so the driver's wrap before scaling is safe here.
-	const float measured_wing = enc.angle * _encoder_to_wing;
-	_measured_angle = measured_wing;
+	// Hand the wing-angle setpoint to the wing_tilt controller — the single owner of the tilt
+	// motor. It closes the encoder loop and arbitrates against higher-priority sources
+	// (self_right, console holds); we keep ownership by republishing every cycle.
+	wing_tilt_setpoint_s sp{};
+	sp.timestamp = hrt_absolute_time();
+	sp.source = wing_tilt_setpoint_s::SOURCE_SUN_TRACKER;
+	sp.angle = tilt_setpoint;
+	_wing_tilt_setpoint_pub.publish(sp);
 
-	// Position error (wrapped) against the de-geared encoder feedback.
-	const float error = matrix::wrap_pi(tilt_setpoint - measured_wing);
-
-	const hrt_abstime now = hrt_absolute_time();
-	float dt = (_last_run > 0) ? (now - _last_run) * 1e-6f : 0.05f;
-	dt = math::constrain(dt, 0.001f, 0.2f);
-	_last_run = now;
-
-	// Deadband to avoid ESC dither when we are essentially on target.
-	const float error_eff = (fabsf(error) < _param_sun_deadband.get()) ? 0.f : error;
-
-	// PID with integral anti-windup (clamped so the integral term alone cannot saturate output).
-	_integral = math::constrain(_integral + _param_sun_ki.get() * error_eff * dt, -1.f, 1.f);
-
-	float derivative = 0.f;
-
-	if (_last_error_valid) {
-		derivative = (error_eff - _last_error) / dt;
-	}
-
-	_last_error = error_eff;
-	_last_error_valid = true;
-
-	const float u = math::constrain(_param_sun_kp.get() * error_eff + _integral + _param_sun_kd.get() * derivative,
-					-1.f, 1.f);
-
-	_error = error;
-	_output = u;
-
-	publishActuator(u);
-	publishStatus(_param_sun_trk_en.get(), debug_sweep, true, heading_valid, true);
+	publishStatus(_param_sun_trk_en.get(), debug_sweep, true, heading_valid);
 
 	perf_end(_loop_perf);
 }
 
-void SunTracker::publishActuator(float value)
-{
-	const hrt_abstime now = hrt_absolute_time();
-
-	// Only emit a command when the value changed meaningfully, plus a slow heartbeat. This
-	// keeps the steady-state rate of commander-ACK'd DO_SET_ACTUATOR commands low.
-	const bool changed = !PX4_ISFINITE(_last_output) || (fabsf(value - _last_output) > 0.005f);
-	const bool heartbeat = (now - _last_publish) > 200_ms;
-
-	if (!changed && !heartbeat) {
-		return;
-	}
-
-	vehicle_command_s cmd{};
-	cmd.timestamp = now;
-	cmd.command = vehicle_command_s::VEHICLE_CMD_DO_SET_ACTUATOR;
-	cmd.param1 = value; // -> Peripheral_via_Actuator_Set1 (PWM_AUX_FUNCx = 301)
-	cmd.param2 = NAN;
-	cmd.param3 = NAN;
-	cmd.param4 = NAN;
-	cmd.param5 = NAN;
-	cmd.param6 = NAN;
-	cmd.param7 = 0.f;   // actuator set index
-	cmd.from_external = false;
-	_vehicle_command_pub.publish(cmd);
-
-	_last_output = value;
-	_last_publish = now;
-}
-
-void SunTracker::publishStatus(bool enabled, bool debug_sweep, bool pose_valid, bool heading_valid,
-			       bool encoder_valid)
+void SunTracker::publishStatus(bool enabled, bool debug_sweep, bool pose_valid, bool heading_valid)
 {
 	sun_tracker_status_s status{};
 	status.timestamp = hrt_absolute_time();
@@ -337,14 +261,10 @@ void SunTracker::publishStatus(bool enabled, bool debug_sweep, bool pose_valid, 
 	status.heading = _heading;
 	status.heading_var = _heading_var;
 	status.tilt_setpoint = _tilt_setpoint;
-	status.measured_angle = _measured_angle;
-	status.error = _error;
-	status.output = _output;
 	status.enabled = enabled;
 	status.debug_sweep = debug_sweep;
 	status.pose_valid = pose_valid;
 	status.heading_valid = heading_valid;
-	status.encoder_valid = encoder_valid;
 	_sun_tracker_status_pub.publish(status);
 }
 
@@ -355,9 +275,7 @@ int SunTracker::print_status()
 	PX4_INFO("sun:   az %6.1f deg  el %6.1f deg", (double)(_sun_az * r2d), (double)(_sun_el * r2d));
 	PX4_INFO("head:  yaw %6.1f deg  var %.4f rad^2 (max %.4f)", (double)(_heading * r2d),
 		 (double)_heading_var, (double)_param_sun_hdg_var_max.get());
-	PX4_INFO("tilt:  setpoint %6.1f deg  measured %6.1f deg  error %6.1f deg",
-		 (double)(_tilt_setpoint * r2d), (double)(_measured_angle * r2d), (double)(_error * r2d));
-	PX4_INFO("out:   u %.3f  (last published %.3f)", (double)_output, (double)_last_output);
+	PX4_INFO("tilt:  setpoint %6.1f deg (loop closed by wing_tilt)", (double)(_tilt_setpoint * r2d));
 	perf_print_counter(_loop_perf);
 	return 0;
 }

@@ -1,0 +1,66 @@
+module_name: Wing Tilt
+parameters:
+  - group: Wing Tilt
+    definitions:
+      TILT_KP:
+        description:
+          short: Wing tilt position loop proportional gain
+          long: |
+            Proportional gain mapping tilt angle error [rad] to normalized ESC command [-1, 1].
+        type: float
+        min: 0.0
+        max: 20.0
+        decimal: 3
+        increment: 0.01
+        default: 2.0
+
+      TILT_KI:
+        description:
+          short: Wing tilt position loop integral gain
+        type: float
+        min: 0.0
+        max: 20.0
+        decimal: 3
+        increment: 0.01
+        default: 0.0
+
+      TILT_KD:
+        description:
+          short: Wing tilt position loop derivative gain
+        type: float
+        min: 0.0
+        max: 20.0
+        decimal: 3
+        increment: 0.01
+        default: 0.0
+
+      TILT_DB:
+        description:
+          short: Tilt error deadband
+          long: |
+            When the absolute tilt angle error is below this value the controller treats the
+            error as zero to avoid ESC dither around the target.
+        type: float
+        unit: rad
+        min: 0.0
+        max: 0.2
+        decimal: 3
+        increment: 0.001
+        default: 0.01
+
+      TILT_GEAR:
+        description:
+          short: Encoder-to-wing gear ratio (encoder turns per wing turn)
+          long: |
+            Gear reduction between the wing tilt shaft and the AS5600 encoder shaft. Set to
+            (shaft gear teeth) / (encoder gear teeth). The encoder rotates this many turns per
+            wing turn, so the controller divides the measured encoder angle by this ratio to
+            recover the true wing angle. 1.0 = direct drive (encoder on the wing shaft).
+            Example: a 25-tooth shaft gear driving a 20-tooth encoder gear -> 25/20 = 1.25.
+        type: float
+        min: 0.1
+        max: 10.0
+        decimal: 3
+        increment: 0.01
+        default: 1.0
+        reboot_required: true

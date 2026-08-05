@@ -117,14 +117,17 @@ void LoggedTopics::add_default_topics()
 	add_optional_topic("rover_throttle_setpoint", 100);
 	add_topic("rtl_time_estimate", 1000);
 	add_topic("rtl_status", 2000);
+	add_optional_topic("self_right_status", 20);
 	add_optional_topic("sensor_airflow", 100);
 	add_topic("sensor_combined");
 	add_optional_topic("sensor_correction");
+	add_optional_topic("sensor_encoder", 50);
 	add_optional_topic("sensor_gyro_fft", 50);
 	add_topic("sensor_selection");
 	add_topic("sensors_status_imu", 200);
 	add_optional_topic("spoilers_setpoint", 1000);
 	add_optional_topic("sun_tracker_status", 100);
+	add_optional_topic("wing_tilt_status", 50);
 	add_topic("system_power", 500);
 	add_optional_topic("takeoff_status", 1000);
 	add_optional_topic("tecs_status", 200);
