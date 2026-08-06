@@ -13,6 +13,11 @@ Module: `src/modules/self_right/`. Full design reference: [self_right_architectu
 
 ## Flow Chart
 
+Rendered version: [self_right_states.svg](self_right_states.svg). Parameter provenance from the
+2026-07-24 manual pool flip: [self_right_param_seeding.png](self_right_param_seeding.png)
+(regenerate with `Tools/self_right/plot_param_seeding.py`).
+
+
 ```
                     ┌─────────────────────────────┐
                     │  Commander gate (latched)   │

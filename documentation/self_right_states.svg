@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="950" viewBox="0 0 880 950" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#52525b"/>
+    </marker>
+  </defs>
+
+  <rect width="880" height="950" fill="#ffffff"/>
+
+  <!-- IDLE -->
+  <rect x="250" y="36" width="360" height="54" rx="10" fill="#f8fafc" stroke="#64748b" stroke-width="1.5"/>
+  <text x="430" y="59" text-anchor="middle" font-size="15" font-weight="bold" fill="#111">IDLE</text>
+  <text x="430" y="77" text-anchor="middle" font-size="11.5" font-style="italic" fill="#52525b">mode not active</text>
+
+  <!-- IDLE -> VERIFY -->
+  <line x1="430" y1="90" x2="430" y2="146" stroke="#52525b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="442" y="108" font-size="11" fill="#52525b">pilot enters SELF_RIGHT</text>
+  <text x="442" y="122" font-size="11" fill="#52525b">(gate: inverted &amp;&amp; at rest)</text>
+
+  <!-- VERIFY -->
+  <rect x="250" y="150" width="360" height="96" rx="10" fill="#fef9c3" stroke="#eab308" stroke-width="1.5"/>
+  <text x="430" y="174" text-anchor="middle" font-size="15" font-weight="bold" fill="#111">VERIFY</text>
+  <text x="430" y="192" text-anchor="middle" font-size="11.5" fill="#3f3f46">motors off, wing untouched</text>
+  <text x="430" y="209" text-anchor="middle" font-size="11.5" font-style="italic" fill="#52525b">inverted &#183; at rest &#183; EKF tilt-aligned</text>
+  <text x="430" y="226" text-anchor="middle" font-size="11.5" font-style="italic" fill="#52525b">encoder fresh &#183; battery OK</text>
+
+  <!-- VERIFY -> ROTATE -->
+  <line x1="430" y1="246" x2="430" y2="306" stroke="#52525b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="442" y="282" font-size="11" fill="#52525b">all checks pass</text>
+
+  <!-- VERIFY -> DISARM (abort, right rail) -->
+  <path d="M 610 198 H 770 V 798 H 618" fill="none" stroke="#52525b" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+  <text x="640" y="188" font-size="11" fill="#52525b">&gt; 1 s without pass</text>
+  <text x="640" y="202" font-size="11" fill="#52525b">(VERIFY_FAIL) or stick</text>
+
+  <!-- ROTATE WING -->
+  <rect x="250" y="310" width="360" height="88" rx="10" fill="#f8fafc" stroke="#64748b" stroke-width="1.5"/>
+  <text x="430" y="336" text-anchor="middle" font-size="15" font-weight="bold" fill="#111">ROTATE WING</text>
+  <text x="430" y="354" text-anchor="middle" font-size="11.5" fill="#3f3f46">motors off</text>
+  <text x="430" y="372" text-anchor="middle" font-size="11.5" font-style="italic" fill="#52525b">wing &#8594; props-up (SR_TILT_SP, +90&#176;)</text>
+
+  <!-- ROTATE -> RIGHTING -->
+  <line x1="430" y1="398" x2="430" y2="458" stroke="#52525b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="442" y="434" font-size="11" fill="#52525b">tilt within SR_TILT_TOL</text>
+
+  <!-- ROTATE -> CUT (abort rail) -->
+  <path d="M 610 358 H 700 V 652 H 618" fill="none" stroke="#52525b" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+  <text x="628" y="342" font-size="11" fill="#52525b">t &gt; SR_TILT_TMO or stick</text>
+  <text x="628" y="356" font-size="11" fill="#52525b">(never thrusts)</text>
+
+  <!-- RIGHTING -->
+  <rect x="250" y="462" width="360" height="88" rx="10" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="430" y="488" text-anchor="middle" font-size="15" font-weight="bold" fill="#111">RIGHTING</text>
+  <text x="430" y="506" text-anchor="middle" font-size="11.5" fill="#3f3f46">hold wing up</text>
+  <text x="430" y="524" text-anchor="middle" font-size="11.5" font-style="italic" fill="#52525b">ramp to SR_THR_MAX over SR_RAMP_T</text>
+
+  <!-- RIGHTING -> CUT (success) -->
+  <line x1="430" y1="550" x2="430" y2="610" stroke="#52525b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="442" y="578" font-size="11" fill="#52525b">over-center: &#952; &lt; SR_OVERCTR</text>
+  <text x="442" y="592" font-size="11" fill="#16a34a" font-weight="bold">(flip committed &#8212; SUCCESS)</text>
+
+  <!-- RIGHTING -> CUT (abort) -->
+  <path d="M 610 510 H 650 V 640 H 618" fill="none" stroke="#52525b" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+  <text x="660" y="500" font-size="11" fill="#52525b">t &gt; SR_TIMEOUT</text>
+  <text x="660" y="514" font-size="11" fill="#52525b">or stick</text>
+
+  <!-- CUT -->
+  <rect x="250" y="614" width="360" height="76" rx="10" fill="#f8fafc" stroke="#64748b" stroke-width="1.5"/>
+  <text x="430" y="640" text-anchor="middle" font-size="15" font-weight="bold" fill="#111">CUT</text>
+  <text x="430" y="660" text-anchor="middle" font-size="11.5" font-style="italic" fill="#52525b">throttle &#8594; 0, wing &#8594; park</text>
+
+  <!-- CUT -> DISARM -->
+  <line x1="430" y1="690" x2="430" y2="750" stroke="#52525b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="442" y="716" font-size="11" fill="#52525b">wing parked</text>
+  <text x="442" y="730" font-size="11" fill="#52525b">(or SR_TILT_TMO, or stick)</text>
+
+  <!-- DISARM -->
+  <rect x="250" y="754" width="360" height="88" rx="10" fill="#dcfce7" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="430" y="780" text-anchor="middle" font-size="15" font-weight="bold" fill="#111">DISARM</text>
+  <text x="430" y="798" text-anchor="middle" font-size="11.5" fill="#3f3f46">forced COMPONENT_ARM_DISARM</text>
+  <text x="430" y="816" text-anchor="middle" font-size="11.5" font-style="italic" fill="#52525b">retried every 500 ms</text>
+
+  <!-- DISARM -> IDLE (return, left rail) -->
+  <path d="M 250 798 H 120 V 63 H 242" fill="none" stroke="#52525b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="132" y="430" font-size="11" fill="#52525b">commander</text>
+  <text x="132" y="444" font-size="11" fill="#52525b">reports disarmed</text>
+
+  <!-- Legend -->
+  <line x1="250" y1="890" x2="310" y2="890" stroke="#52525b" stroke-width="1.5"/>
+  <text x="318" y="894" font-size="11.5" fill="#3f3f46">nominal path</text>
+  <line x1="430" y1="890" x2="490" y2="890" stroke="#52525b" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="498" y="894" font-size="11.5" fill="#3f3f46">abort (stick override works from any active state)</text>
+  <text x="250" y="922" font-size="11.5" fill="#71717a">PX4 self_right &#8212; every path ends in a forced disarm; RC mode switch also exits immediately.</text>
+</svg>
