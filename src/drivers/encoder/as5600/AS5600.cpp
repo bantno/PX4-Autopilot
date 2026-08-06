@@ -104,13 +104,24 @@ int AS5600::collect()
 	// Latch the boot-time level reference on the first valid reading, or on a reset request.
 	if (magnet_detected && (!_zeroed || _zero_request)) {
 		_zero_count = count;
+		_last_count = count;
+		_accum_counts = 0;
 		_zeroed = true;
 		_zero_request = false;
 	}
 
-	// Counts relative to the zero reference, wrapped into one signed revolution.
-	const int16_t delta = (int16_t)(count - _zero_count);
-	const float angle = matrix::wrap_pi(delta * (2.0f * M_PI_F / AS5600_RESOLUTION));
+	// Multi-turn accumulation: with the encoder geared up off the wing spar, the wing's travel
+	// can exceed one encoder revolution, so a wrapped absolute angle is ambiguous. Integrate the
+	// per-sample step instead (sign-extended 12-bit shortest-path difference — valid while the
+	// shaft moves less than half a revolution between samples, far above any physical rate).
+	const int16_t step = (int16_t)((uint16_t)((count - _last_count) << 4)) >> 4;
+	_last_count = count;
+
+	if (_zeroed) {
+		_accum_counts += step;
+	}
+
+	const float angle = _accum_counts * (2.0f * M_PI_F / AS5600_RESOLUTION);
 
 	sensor_encoder_s report{};
 	report.timestamp = hrt_absolute_time();

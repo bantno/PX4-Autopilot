@@ -92,6 +92,8 @@ private:
 	uORB::PublicationMulti<sensor_encoder_s> _sensor_encoder_pub{ORB_ID(sensor_encoder)};
 
 	uint16_t _zero_count{0};       // raw count latched as "wing level" (tilt = 0)
+	uint16_t _last_count{0};       // previous raw count, for the multi-turn step accumulation
+	int32_t _accum_counts{0};      // accumulated counts relative to the zero reference (multi-turn)
 	bool _zeroed{false};           // true once the boot-time reference has been latched
 	volatile bool _zero_request{false}; // set by the "reset" verb to re-latch the reference
 

@@ -80,12 +80,14 @@ void WingTiltSim::Run()
 	// Integrate the rate-source plant and clamp at the mechanical stops.
 	_angle = math::constrain(_angle + MAX_RATE_RAD_S * _u * dt, -TRAVEL_LIMIT_RAD, TRAVEL_LIMIT_RAD);
 
+	// Continuous (multi-turn) angle, matching the real driver's accumulation; the wrapped copy
+	// only feeds the raw_count diagnostic.
 	const float wrapped = matrix::wrap_pi(_angle);
 
 	sensor_encoder_s report{};
 	report.timestamp = now;
 	report.device_id = 0x5123; // synthetic device id
-	report.angle = wrapped;
+	report.angle = _angle;
 	report.raw_count = (uint16_t)((wrapped + (float)M_PI) / (2.f * (float)M_PI) * 4096.f) & 0x0FFF;
 	report.valid = true;
 	report.zeroed = true;
