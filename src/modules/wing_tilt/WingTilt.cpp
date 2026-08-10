@@ -190,9 +190,6 @@ void WingTilt::Run()
 	// Deadband to avoid ESC dither when we are essentially on target.
 	const float error_eff = (fabsf(error) < _param_tilt_db.get()) ? 0.f : error;
 
-	// PID with integral anti-windup (clamped so the integral term alone cannot saturate output).
-	_integral = math::constrain(_integral + _param_tilt_ki.get() * error_eff * dt, -1.f, 1.f);
-
 	float derivative = 0.f;
 
 	if (_last_error_valid) {
@@ -202,8 +199,20 @@ void WingTilt::Run()
 	_last_error = error_eff;
 	_last_error_valid = true;
 
-	const float u = math::constrain(_param_tilt_kp.get() * error_eff + _integral
-					+ _param_tilt_kd.get() * derivative, -1.f, 1.f);
+	const float u_unsat = _param_tilt_kp.get() * error_eff + _integral
+			      + _param_tilt_kd.get() * derivative;
+	const float u = math::constrain(u_unsat, -1.f, 1.f);
+
+	// Anti-windup (conditional integration): while the output is saturated — e.g. the whole
+	// 0 -> 90 deg transit, where P alone pins the command at full — integrating the large error
+	// would only store surplus command that overshoots the target and takes tens of seconds to
+	// bleed off. Freeze the integrator when saturated, unless the error is actively unwinding
+	// it. The integral's job is the steady-state hold (gravity droop) once the loop is linear.
+	const bool saturated = fabsf(u_unsat) >= 1.f;
+
+	if (!saturated || (error_eff * u_unsat < 0.f)) {
+		_integral = math::constrain(_integral + _param_tilt_ki.get() * error_eff * dt, -1.f, 1.f);
+	}
 
 	_error = error;
 	_output = u;
