@@ -13,10 +13,12 @@ sun_tracker and self_right publish setpoints to it; priority: **self_right > con
    param set SR_EN 1
    param set SENS_EN_XM125 1      # only if the radar is wired
    ```
-2. Restore the tuned tilt-loop values (recovered from the pool-test log; old SUN_* params are gone):
+2. Set the tuned tilt-loop values (bench-confirmed 2026-08-10; the old SUN_* params are gone,
+   and the logged SUN_GEAR_RATIO 0.8 turned out to be the reciprocal — the bevel gears the
+   encoder UP off the wing spar):
    ```
-   param set TILT_GEAR 0.8        # encoder turns per wing turn (was SUN_GEAR_RATIO)
-   param set TILT_KI 0.1          # tuned integral gain (was SUN_KI; TILT_KI defaults to 0)
+   param set TILT_GEAR 1.2        # encoder turns per wing turn (measured; was wrongly 0.8)
+   param set TILT_KI 0.2          # integral gain (bench-tuned; TILT_KI defaults to 0)
    ```
    `TILT_KP 2.0`, `TILT_KD 0`, `TILT_DB 0.01` defaults already match the old tune.
    `TILT_DB` (error deadband, rad) is runtime-adjustable — it bounds the steady-state error.
@@ -40,7 +42,7 @@ Monitor with `listener self_right_status` and `wing_tilt status` (QGC MAVLink co
 
 1. **Gear/tilt regression:** `self_right tilt 45` → the wing drives to a **physical** +45° and
    holds against a gentle push; `wing_tilt status` shows `owner: console`, `measured ~45 deg`,
-   small error. (The raw encoder will read ~36° = 45° × 0.8 — the de-gearing is correct if the
+   small error. (The raw encoder will read ~54° = 45° × 1.2 — the de-gearing is correct if the
    *wing* is at 45°.) `self_right tilt off` → wing stops within ~0.5 s, `owner: none`.
 2. **Arbitration:** with `SUN_TRK_EN 1` and the tracker in any state, `self_right tilt 20` must
    take the wing (`owner: console`) and hold it steadily — no jitter, no fighting. `tilt off`
