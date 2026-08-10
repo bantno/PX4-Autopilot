@@ -34,7 +34,7 @@ Rendered version: [self_right_states.svg](self_right_states.svg). Parameter prov
                                    ▼                                    │
                           ┌─────────────────┐                           │
                           │   ROTATE WING   │  tilt PID → props-up      │
-                          │   motors off    │  (~90°)                   │
+                          │   motors off    │  (−90°)                   │
                           └────────┬────────┘                           │
                  |θ_tilt−SP|<tol   │        t > SR_TILT_TMO → CUT       │
                                    ▼        (failure: never thrust)     │

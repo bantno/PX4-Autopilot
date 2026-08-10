@@ -132,6 +132,6 @@ sun_tracker start
 # reports the aircraft inverted and at rest. Opt-in via SR_EN. Make it selectable on RC flight-mode
 # slot 6 (COM_FLTMODE6) and via GCS; the entry gate is enforced regardless of source.
 param set-default SR_EN 0
-param set-default SR_TILT_SP 1.57
+param set-default SR_TILT_SP -1.57
 param set-default COM_FLTMODE6 17
 self_right start

@@ -129,7 +129,7 @@ sun_tracker start
 # The SELF_RIGHT flight mode is gated so it can only be entered/armed when the estimator reports the
 # aircraft inverted and at rest. Opt-in via SR_EN. Selectable on RC flight-mode slot 6 and via GCS.
 param set-default SR_EN 0
-param set-default SR_TILT_SP 1.57
+param set-default SR_TILT_SP -1.57
 param set-default COM_FLTMODE6 17
 self_right start
 

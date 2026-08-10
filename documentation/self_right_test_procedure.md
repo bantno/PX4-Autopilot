@@ -26,12 +26,12 @@ sun_tracker and self_right publish setpoints to it; priority: **self_right > con
 3. `reboot`. The airframe auto-starts `wing_tilt`, `as5600`, `sun_tracker`, `self_right`,
    `ina226_charger` on every boot, and puts SELF_RIGHT on RC flight-mode slot 6.
 4. **Boot-position convention: power on with the wing LEVEL, every time.** The encoder zeroes at
-   boot; all setpoints (`SR_TILT_SP 1.57` = props-up) are wing angle relative to that zero.
+   boot; all setpoints (`SR_TILT_SP -1.57` = props-up) are wing angle relative to that zero.
 5. Confirm after reboot:
    - `wing_tilt status` → `owner: none`, `encoder: ok`
    - `self_right status` → state 0
    - `listener sensor_encoder` → `valid: True`, `zeroed: True`
-   - `param show SR_*` → THR_MAX 1.0, OVERCTR 1.4, TIMEOUT 5.0, TILT_SP 1.57, STICK_DZ 0.15
+   - `param show SR_*` → THR_MAX 1.0, OVERCTR 1.4, TIMEOUT 5.0, TILT_SP -1.57, STICK_DZ 0.15
 
    `SUN_TRK_EN` may stay whatever you like now — the wing_tilt arbitration means the sun tracker
    can never fight self_right or a console hold. Set it 0 anyway for quieter logs during testing.
@@ -52,7 +52,7 @@ Monitor with `listener self_right_status` and `wing_tilt status` (QGC MAVLink co
    slot 6 → within ~1 s `abort_reason: 4` (VERIFY_FAIL), the wing never moves, and the vehicle
    **disarms itself**. Restore with `as5600 start -X -b 4`.
 5. **Happy path + stick override:** inverted, armed, sticks centered, switch to slot 6 → states
-   walk 1 (Verify) → 2 (RotateWing, `wing_tilt` owner becomes `self_right`, wing to +90°) →
+   walk 1 (Verify) → 2 (RotateWing, `wing_tilt` owner becomes `self_right`, wing to −90°) →
    3 (Righting, motors ramp to full over 1 s). While motors spin, wiggle the roll stick →
    instant cut, wing parks, `abort_reason: 1` (STICK), disarm.
 6. **Simulated flip:** repeat entry, and during Righting physically rotate the airframe past

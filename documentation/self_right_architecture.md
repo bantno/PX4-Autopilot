@@ -87,7 +87,7 @@ Active only while `nav_state == NAVIGATION_STATE_SELF_RIGHT`. One `ScheduledWork
         └────┬────┘
              ▼
         ┌─────────┐
-        │ ROTATE  │  tilt PID drives θ_tilt → SR_TILT_SP (~π/2, props up), motors off
+        │ ROTATE  │  tilt PID drives θ_tilt → SR_TILT_SP (−π/2, props up), motors off
         │  WING   │  |θ_tilt−SP| < SR_TILT_TOL → RIGHTING
         └────┬────┘  t > SR_TILT_TMO → CUT (FAILURE — never thrust with the props misplaced)
              ▼

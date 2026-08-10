@@ -29,14 +29,16 @@ parameters:
       SR_TILT_SP:
         description:
           short: Wing tilt setpoint for props-up righting
-          long: Wing angle (relative to boot-time level) that points the props up while inverted.
+          long: |
+            Wing angle (relative to boot-time level) that points the props up while inverted.
+            Negative on this airframe: props-up is -90 deg of wing tilt.
         type: float
         unit: rad
-        min: 0.0
+        min: -1.8
         max: 1.8
         decimal: 3
         increment: 0.01
-        default: 1.57
+        default: -1.57
 
       SR_TILT_PARK:
         description:
@@ -75,8 +77,8 @@ parameters:
         increment: 0.5
         default: 5.0
 
-      # The wing tilt position loop shares the sun tracker's tune (SUN_KP/KI/KD, SUN_DEADBAND,
-      # SUN_GEAR_RATIO) — same physical actuator and encoder, one set of gains for both.
+      # The wing tilt position loop lives in the wing_tilt module (TILT_KP/KI/KD, TILT_DB,
+      # TILT_GEAR); this module only publishes setpoints to it.
 
       SR_THR_MAX:
         description:
