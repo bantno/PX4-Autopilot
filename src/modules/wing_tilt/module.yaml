@@ -12,8 +12,8 @@ parameters:
         max: 20.0
         decimal: 3
         increment: 0.01
-        default: 2.0
-
+        default: 1.8
+      #may have less ss error when going back to position if you keep increasing KI along with KD
       TILT_KI:
         description:
           short: Wing tilt position loop integral gain
@@ -22,7 +22,7 @@ parameters:
         max: 20.0
         decimal: 3
         increment: 0.01
-        default: 0.0
+        default: 0.45
 
       TILT_KD:
         description:
@@ -32,7 +32,7 @@ parameters:
         max: 20.0
         decimal: 3
         increment: 0.01
-        default: 0.0
+        default: 0.11
 
       TILT_DB:
         description:

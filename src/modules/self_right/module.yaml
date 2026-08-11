@@ -60,7 +60,7 @@ parameters:
         max: 0.5
         decimal: 3
         increment: 0.01
-        default: 0.1
+        default: 0.05
 
       SR_TILT_TMO:
         description:
