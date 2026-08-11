@@ -13,15 +13,20 @@ sun_tracker and self_right publish setpoints to it; priority: **self_right > con
    param set SR_EN 1
    param set SENS_EN_XM125 1      # only if the radar is wired
    ```
-2. Set the tuned tilt-loop values (bench-confirmed 2026-08-10; the old SUN_* params are gone,
-   and the logged SUN_GEAR_RATIO 0.8 turned out to be the reciprocal — the bevel gears the
-   encoder UP off the wing spar):
+2. Set the tuned tilt-loop values (bench-tuned 2026-08-11, supersedes the 2026-08-10 pass —
+   the old SUN_* params are gone, and the logged SUN_GEAR_RATIO 0.8 turned out to be the
+   reciprocal — the bevel gears the encoder UP off the wing spar. KP/KI/KD were then retuned
+   together: raising KI alone for steady-state accuracy caused overshoot during the throttle-on
+   Righting hold, so KD was added to damp it, which then allowed KI to go higher still):
    ```
    param set TILT_GEAR 1.2        # encoder turns per wing turn (measured; was wrongly 0.8)
-   param set TILT_KI 0.2          # integral gain (bench-tuned; TILT_KI defaults to 0)
+   param set TILT_KP 1.8          # proportional gain (was default 2.0)
+   param set TILT_KI 0.45         # integral gain — kills steady-state droop; raise with KD together
+   param set TILT_KD 0.11         # derivative gain — damps overshoot from raising KP/KI
+   param set SR_TILT_TOL 0.05     # props-up/park tolerance, rad (was default 0.1)
    ```
-   `TILT_KP 2.0`, `TILT_KD 0`, `TILT_DB 0.01` defaults already match the old tune.
-   `TILT_DB` (error deadband, rad) is runtime-adjustable — it bounds the steady-state error.
+   `TILT_DB 0.01` default still matches the tune — it's the deadband floor below which the loop
+   stops correcting (avoids ESC dither); runtime-adjustable if the deadzone ever needs revisiting.
    `TILT_GEAR` is read once at startup, so:
 3. `reboot`. The airframe auto-starts `wing_tilt`, `as5600`, `sun_tracker`, `self_right`,
    `ina226_charger` on every boot, and puts SELF_RIGHT on RC flight-mode slot 6.
@@ -31,7 +36,9 @@ sun_tracker and self_right publish setpoints to it; priority: **self_right > con
    - `wing_tilt status` → `owner: none`, `encoder: ok`
    - `self_right status` → state 0
    - `listener sensor_encoder` → `valid: True`, `zeroed: True`
-   - `param show SR_*` → THR_MAX 1.0, OVERCTR 1.4, TIMEOUT 5.0, TILT_SP -1.57, STICK_DZ 0.15
+   - `param show SR_*` → THR_MAX 1.0, OVERCTR 1.4, TIMEOUT 5.0, TILT_SP -1.57, TILT_TOL 0.05,
+     STICK_DZ 0.15
+   - `param show TILT_*` → KP 1.8, KI 0.45, KD 0.11, DB 0.01, GEAR 1.2
 
    `SUN_TRK_EN` may stay whatever you like now — the wing_tilt arbitration means the sun tracker
    can never fight self_right or a console hold. Set it 0 anyway for quieter logs during testing.
