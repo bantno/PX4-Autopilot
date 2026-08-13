@@ -47,6 +47,7 @@
 
 #pragma once
 
+#include <px4_platform_common/atomic.h>
 #include <px4_platform_common/defines.h>
 #include <px4_platform_common/module.h>
 #include <px4_platform_common/module_params.h>
@@ -123,10 +124,15 @@ private:
 	hrt_abstime _last_publish{0};
 
 	// ESC arming sequence (below neutral, then above, then neutral): the reversible tilt ESC
-	// only arms after seeing this, and the AUX pin is pinned to the disarmed neutral until the
-	// vehicle outputs go live — so the sequence runs on every disarmed->live transition.
+	// only arms after seeing this. With COM_PREARM_MODE 2 the outputs go live as soon as
+	// commander first publishes — seconds after battery plug-in, while the ESC is still in its
+	// own power-on init — so the sweep is scheduled TILT_ARM_DLY after the disarmed->live
+	// transition (the pin holds neutral in the meantime) and can be re-run on demand with the
+	// `wing_tilt esc_arm` console command.
 	bool _outputs_live_prev{false};
-	hrt_abstime _esc_arm_start{0};   // 0 = sequence not running
+	hrt_abstime _esc_arm_scheduled{0};   // 0 = no sequence pending
+	hrt_abstime _esc_arm_start{0};       // 0 = sequence not running
+	px4::atomic_bool _esc_arm_request{false};   // console-requested re-run (console thread -> Run)
 
 	// Diagnostics; angles in radians.
 	uint8_t _active_source{wing_tilt_status_s::SOURCE_NONE};
@@ -145,6 +151,7 @@ private:
 		(ParamFloat<px4::params::TILT_DB>) _param_tilt_db,
 		(ParamFloat<px4::params::TILT_GEAR>) _param_tilt_gear,
 		(ParamFloat<px4::params::TILT_ARM_V>) _param_tilt_arm_v,
-		(ParamFloat<px4::params::TILT_ARM_T>) _param_tilt_arm_t
+		(ParamFloat<px4::params::TILT_ARM_T>) _param_tilt_arm_t,
+		(ParamFloat<px4::params::TILT_ARM_DLY>) _param_tilt_arm_dly
 	)
 };

@@ -24,6 +24,8 @@ sun_tracker and self_right publish setpoints to it; priority: **self_right > con
    param set TILT_KI 0.45         # integral gain — kills steady-state droop; raise with KD together
    param set TILT_KD 0.11         # derivative gain — damps overshoot from raising KP/KI
    param set SR_TILT_TOL 0.05     # props-up/park tolerance, rad (was default 0.1)
+   param set PWM_MAIN_MIN1 1000   # motor min = ESC zero-throttle (was 1100 = armed idle spin):
+   param set PWM_MAIN_MIN2 1000   # throttle 0 must NOT spin the props while the wing rotates
    ```
    `TILT_DB 0.01` default still matches the tune — it's the deadband floor below which the loop
    stops correcting (avoids ESC dither); runtime-adjustable if the deadzone ever needs revisiting.
@@ -32,7 +34,10 @@ sun_tracker and self_right publish setpoints to it; priority: **self_right > con
    `ina226_charger` on every boot, and puts SELF_RIGHT on RC flight-mode slot 6.
 4. **Boot-position convention: power on with the wing LEVEL, every time.** The encoder zeroes at
    boot; all setpoints (`SR_TILT_SP -1.57` = props-up) are wing angle relative to that zero.
-5. Confirm after reboot:
+5. **Tilt ESC arms itself** ~`TILT_ARM_DLY` (5 s) after boot: listen for the arm chirp once the
+   below/above/neutral sweep runs. No QGC actuators-tab dance. If the ESC was power-cycled
+   separately, re-run the sweep with `wing_tilt esc_arm`.
+6. Confirm after reboot:
    - `wing_tilt status` → `owner: none`, `encoder: ok`
    - `self_right status` → state 0
    - `listener sensor_encoder` → `valid: True`, `zeroed: True`

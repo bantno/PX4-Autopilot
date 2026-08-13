@@ -54,10 +54,9 @@ parameters:
           long: |
             The reversible tilt ESC arms only after seeing a command below neutral and then above
             neutral. The controller runs that sequence (-TILT_ARM_V for TILT_ARM_T seconds, then
-            +TILT_ARM_V for TILT_ARM_T, then neutral) every time the vehicle outputs go live
-            (arming/prearming) — before that the output pin is pinned to the disarmed neutral, so
-            a boot-time sequence would never reach the ESC. Setpoints are not serviced until the
-            sequence completes. 0 disables it.
+            +TILT_ARM_V for TILT_ARM_T, then neutral) TILT_ARM_DLY seconds after the vehicle
+            outputs go live (arming/prearming), and on demand via `wing_tilt esc_arm`. Setpoints
+            are not serviced until the sequence completes. 0 disables it.
         type: float
         min: 0.0
         max: 1.0
@@ -75,6 +74,23 @@ parameters:
         decimal: 2
         increment: 0.05
         default: 0.3
+
+      TILT_ARM_DLY:
+        description:
+          short: ESC arming sequence start delay
+          long: |
+            Delay from the vehicle outputs going live (arming/prearming) to the start of the ESC
+            arming sequence. With prearm enabled the outputs go live seconds after battery
+            plug-in, while the tilt ESC is still in its own power-on init and would miss the
+            sweep; the output pin holds neutral during the delay so the ESC boots against a
+            valid signal, then sees the sweep and arms.
+        type: float
+        unit: s
+        min: 0.0
+        max: 30.0
+        decimal: 1
+        increment: 0.5
+        default: 5.0
 
       TILT_GEAR:
         description:

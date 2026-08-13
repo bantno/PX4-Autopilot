@@ -97,6 +97,12 @@ param set-default PWM_MAIN_FUNC4 202
 param set-default PWM_MAIN_FUNC5 203
 param set-default PWM_MAIN_FUNC6 204
 
+# Motor min PWM at the ESC zero-throttle level (same as PWM_MAIN_DIS1/2): throttle 0 must not
+# spin the props — the self_right maneuver holds throttle 0 while the wing rotates through the
+# prop arc, and in flight idle throttle stops the props for the soaring profile.
+param set-default PWM_MAIN_MIN1 1000
+param set-default PWM_MAIN_MIN2 1000
+
 # Sun-tracking tilt wing: dedicated reversible-ESC output on the FMU rail (FMU7)
 # via Peripheral_via_Actuator_Set1. The sun_tracker module drives it with
 # vehicle_command/DO_SET_ACTUATOR (param1 -> Set1). Configure the output so the

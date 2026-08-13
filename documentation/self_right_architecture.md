@@ -30,6 +30,10 @@ a forced disarm** — success, timeout, verify failure, or pilot stick override.
   `Peripheral_via_Actuator_Set1`. Client modules never command the ESC directly — they publish
   wing-angle setpoints on `wing_tilt_setpoint`, arbitrated by priority (**self_right > console >
   sun_tracker**) and freshness (a source releases the wing by not republishing for 0.5 s).
+  The reversible ESC arms itself: `wing_tilt` runs the below/above/neutral arming sweep
+  (`TILT_ARM_V`/`TILT_ARM_T`) `TILT_ARM_DLY` seconds after the outputs go live (prearm at boot),
+  so the ESC finishes its own power-on init against a neutral signal first. `wing_tilt esc_arm`
+  re-runs it on demand — no QGC actuators-tab interaction needed.
 - Wing-angle feedback: AS5600 magnetic encoder → `sensor_encoder` topic (`angle`, boot-zeroed at
   wing-level). In SITL the plant is the `wing_tilt_sim` module (integrates the actuator command into an
   angle and republishes `sensor_encoder`).
@@ -122,7 +126,9 @@ tipping point and the upright float will complete the settle without thrust.
   the wing can never run away on a stale correction.
 - **Prop moment:** **symmetric** thrust — `actuator_motors.control[0..1] = thr` (equal on both
   tractors). Equal thrust through the tilted (~90°) thrust line, offset from the CG along Z, produces
-  a **pitching** moment — exactly the flip axis.
+  a **pitching** moment — exactly the flip axis. `PWM_MAIN_MIN1/2 = 1000` (the ESCs'
+  zero-throttle level, same as `PWM_MAIN_DIS1/2`), so throttle 0 keeps the props **stopped** —
+  they only spin during RIGHTING, never while the wing rotates through the prop arc.
 - **Righting law (the only one):** ramp the throttle linearly over `SR_RAMP_T` to `SR_THR_MAX` and
   hold; cut on over-center or `SR_TIMEOUT`. Seed `SR_THR_MAX` / `SR_RAMP_T` / `SR_OVERCTR` /
   `SR_TIMEOUT` from a logged successful manual righting.

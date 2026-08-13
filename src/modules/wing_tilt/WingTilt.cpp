@@ -36,6 +36,8 @@
 #include <lib/mathlib/mathlib.h>
 #include <matrix/math.hpp>
 
+#include <string.h>
+
 WingTilt::WingTilt() :
 	ModuleParams(nullptr),
 	ScheduledWorkItem(MODULE_NAME, px4::wq_configurations::nav_and_controllers)
@@ -94,21 +96,34 @@ void WingTilt::Run()
 
 	const hrt_abstime now = hrt_absolute_time();
 
-	// ESC arming sequence: run below-neutral -> above-neutral -> neutral whenever the vehicle
-	// outputs go live (the pin holds the disarmed neutral before that, so a boot-time sequence
-	// would never reach the ESC). Setpoints are not serviced until the sequence completes.
+	// ESC arming sequence: run below-neutral -> above-neutral -> neutral so the reversible ESC
+	// arms. The outputs go live (COM_PREARM_MODE 2) as soon as commander first publishes —
+	// seconds after battery plug-in, while the ESC is still in its own power-on init and would
+	// miss the sweep — so it is scheduled TILT_ARM_DLY after the live transition; the pin holds
+	// neutral until then. Setpoints are not serviced until the sequence completes, and it can be
+	// re-run on demand with `wing_tilt esc_arm`.
 	actuator_armed_s armed;
 
 	if (_actuator_armed_sub.copy(&armed)) {
 		const bool live = armed.armed || armed.prearmed;
 
 		if (live && !_outputs_live_prev && _param_tilt_arm_v.get() > 0.f) {
-			_esc_arm_start = now;
-			_integral = 0.f;
-			_last_error_valid = false;
+			_esc_arm_scheduled = now + (hrt_abstime)(math::max(_param_tilt_arm_dly.get(), 0.f) * 1e6f);
 		}
 
 		_outputs_live_prev = live;
+	}
+
+	if (_esc_arm_request.load()) {
+		_esc_arm_request.store(false);
+		_esc_arm_scheduled = now;
+	}
+
+	if (_esc_arm_scheduled != 0 && now >= _esc_arm_scheduled) {
+		_esc_arm_scheduled = 0;
+		_esc_arm_start = now;
+		_integral = 0.f;
+		_last_error_valid = false;
 	}
 
 	if (_esc_arm_start != 0) {
@@ -126,16 +141,17 @@ void WingTilt::Run()
 			publishActuator(0.f);
 			_esc_arm_start = 0;
 		}
+	}
 
-		if (_esc_arm_start != 0) {
-			_active_source = wing_tilt_status_s::SOURCE_NONE;
-			_setpoint = NAN;
-			_error = NAN;
-			_output = _last_output;
-			publishStatus();
-			perf_end(_loop_perf);
-			return;
-		}
+	if (_esc_arm_start != 0 || _esc_arm_scheduled != 0) {
+		// Sequence pending or running: the ESC is not armed yet, hold off setpoint servicing.
+		_active_source = wing_tilt_status_s::SOURCE_NONE;
+		_setpoint = NAN;
+		_error = NAN;
+		_output = _last_output;
+		publishStatus();
+		perf_end(_loop_perf);
+		return;
 	}
 
 	// Arbitrate: highest-priority source with a fresh setpoint owns the wing.
@@ -272,7 +288,8 @@ int WingTilt::print_status()
 	PX4_INFO("owner: %s  encoder: %s%s",
 		 (_active_source < NUM_SOURCES) ? source_names[_active_source] : "none",
 		 _encoder_valid ? "ok" : "invalid/stale",
-		 (_esc_arm_start != 0) ? "  [ESC arming sequence running]" : "");
+		 (_esc_arm_start != 0) ? "  [ESC arming sequence running]"
+		 : (_esc_arm_scheduled != 0) ? "  [ESC arming sequence scheduled]" : "");
 	PX4_INFO("tilt: setpoint %6.1f deg  measured %6.1f deg  error %6.1f deg  u %.3f",
 		 (double)(_setpoint * r2d), (double)(_measured_angle * r2d),
 		 (double)(_error * r2d), (double)_output);
@@ -305,6 +322,24 @@ int WingTilt::task_spawn(int argc, char *argv[])
 
 int WingTilt::custom_command(int argc, char *argv[])
 {
+	if (argc >= 1 && strcmp(argv[0], "esc_arm") == 0) {
+		WingTilt *inst = get_instance();
+
+		if (!is_running() || inst == nullptr) {
+			PX4_ERR("not running");
+			return PX4_ERROR;
+		}
+
+		if (inst->_param_tilt_arm_v.get() <= 0.f) {
+			PX4_ERR("esc_arm: sequence disabled (TILT_ARM_V is 0)");
+			return PX4_ERROR;
+		}
+
+		inst->_esc_arm_request.store(true);
+		PX4_INFO("esc_arm: running the ESC arming sequence");
+		return PX4_OK;
+	}
+
 	return print_usage("unknown command");
 }
 
@@ -327,6 +362,8 @@ setpoints on wing_tilt_setpoint; the freshest setpoint from the highest-priority
 
 	PRINT_MODULE_USAGE_NAME("wing_tilt", "controller");
 	PRINT_MODULE_USAGE_COMMAND("start");
+	PRINT_MODULE_USAGE_COMMAND_DESCR("esc_arm", "Re-run the reversible-ESC arming sequence "
+					 "(below/above/neutral sweep; e.g. after power-cycling the ESC)");
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
 	return 0;
