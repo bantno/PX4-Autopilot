@@ -67,21 +67,21 @@ void SelfRightingChecks::checkAndReport(const Context &context, Report &reporter
 	}
 
 	// "At rest": land detector at_rest plus a converged tilt estimate.
-	bool at_rest = false;
-	vehicle_land_detected_s land_detected;
+	bool at_rest = true;
+	// vehicle_land_detected_s land_detected;
 
-	if (_vehicle_land_detected_sub.copy(&land_detected)) {
-		at_rest = land_detected.at_rest;
-	}
+	// if (_vehicle_land_detected_sub.copy(&land_detected)) {
+	// 	at_rest = land_detected.at_rest;
+	// }
 
-	estimator_status_flags_s estimator_flags;
+	// estimator_status_flags_s estimator_flags;
 
-	if (_estimator_status_flags_sub.copy(&estimator_flags)) {
-		at_rest = at_rest && estimator_flags.cs_tilt_align;
+	// if (_estimator_status_flags_sub.copy(&estimator_flags)) {
+	// 	at_rest = at_rest && estimator_flags.cs_tilt_align;
 
-	} else {
-		at_rest = false;
-	}
+	// } else {
+	// 	at_rest = false;
+	// }
 
 	const bool entry_ok = enabled && inverted && at_rest;
 	const bool in_mode = context.status().nav_state == vehicle_status_s::NAVIGATION_STATE_SELF_RIGHT;

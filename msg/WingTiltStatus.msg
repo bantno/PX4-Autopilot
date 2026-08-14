@@ -4,6 +4,7 @@
 uint64 timestamp        # time since system start (microseconds)
 
 uint8 SOURCE_NONE = 255
+uint8 SOURCE_RECENTER = 254   # driving back to boot-zero after the ESC arming wiggle
 uint8 source            # active setpoint source (WingTiltSetpoint SOURCE_*; 255 = none, wing stopped)
 
 float32 setpoint        # active wing tilt setpoint [rad] (NaN when no source owns the wing)

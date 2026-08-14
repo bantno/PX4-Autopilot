@@ -38,9 +38,13 @@ sun_tracker and self_right publish setpoints to it; priority: **self_right > con
 4. **Boot-position convention: power on with the wing LEVEL, every time.** The encoder zeroes at
    boot; all setpoints (`SR_TILT_SP -1.57` = props-up) are wing angle relative to that zero.
 5. **Tilt ESC arms itself** ~`TILT_ARM_DLY` (5 s) after boot: a slow sine wiggle about neutral
-   (`TILT_ARM_V 0.1`, `TILT_ARM_N 5` cycles of `TILT_ARM_T 2.0` s — bench-confirmed 2026-08-13)
-   runs and the ESC chirps; the wing then drives itself back to the boot-zero position. No QGC
-   actuators-tab dance. If the ESC was power-cycled separately, re-run with `wing_tilt esc_arm`.
+   (`TILT_ARM_V 0.1`, `TILT_ARM_N 2` cycles of `TILT_ARM_T 2.0` s — it arms in the first cycle,
+   bench-confirmed 2026-08-13; the second is margin) runs and the ESC chirps; the wing then
+   drives itself back to boot-zero at a fixed command (0.35 — the position PID stalls below the
+   ESC motion threshold at small errors, so recenter no longer uses it). No QGC actuators-tab
+   dance. If the ESC was power-cycled separately, re-run with `wing_tilt esc_arm`.
+   If the vehicle has an explicitly-stored `TILT_ARM_N`, update it: `param set TILT_ARM_N 2`
+   (the new firmware default; the old 5 wiggles displace the wing more for no arming benefit).
    (The greenjay firmware arms on pulses within ±10 µs of its stored center, which is slightly
    off 1500 — steady neutral never arms it; the wiggle's slow center crossings do.)
 6. Confirm after reboot:

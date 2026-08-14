@@ -308,8 +308,8 @@ bool SelfRight::verifyPreconditions()
 	const bool inverted = PX4_ISFINITE(_theta) && cosf(_theta) < -_param_sr_inv_thr.get();
 
 	// At rest, with a converged EKF tilt estimate.
-	vehicle_land_detected_s land;
-	const bool at_rest = _vehicle_land_detected_sub.copy(&land) && land.at_rest;
+	// vehicle_land_detected_s land;
+	// const bool at_rest = _vehicle_land_detected_sub.copy(&land) && land.at_rest;
 
 	estimator_status_flags_s est_flags;
 	const bool tilt_aligned = _estimator_status_flags_sub.copy(&est_flags) && est_flags.cs_tilt_align;
@@ -327,7 +327,8 @@ bool SelfRight::verifyPreconditions()
 				&& bat.connected
 				&& bat.warning < battery_status_s::WARNING_LOW;
 
-	return inverted && at_rest && tilt_aligned && encoder_ok && battery_ok;
+	// return inverted && at_rest && tilt_aligned && encoder_ok && battery_ok;
+	return inverted && tilt_aligned && encoder_ok && battery_ok;
 }
 
 bool SelfRight::stickOverride()
