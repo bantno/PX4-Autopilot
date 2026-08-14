@@ -95,6 +95,13 @@ private:
 	static constexpr int NUM_SOURCES = 3;                     // WingTiltSetpoint SOURCE_* count
 	static constexpr hrt_abstime SETPOINT_TIMEOUT = 500_ms;   // source released when older
 	static constexpr hrt_abstime ENCODER_TIMEOUT = 200_ms;    // feedback considered stale when older
+	static constexpr hrt_abstime RECENTER_TIMEOUT = 10_s;     // give up driving back to zero after the wiggle
+
+	// Post-arm recenter drive: a coarse constant-magnitude command instead of the position PID.
+	// At the few degrees of displacement the wiggle leaves behind, the PID's command sits far
+	// below the ESC's motion threshold (~0.3 on the bench) and the wing would never move.
+	static constexpr float RECENTER_DRIVE = 0.35f;   // constant ESC command toward boot-zero
+	static constexpr float RECENTER_TOL = 0.0175f;   // done within ~1 deg of boot-zero [rad]
 
 	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
 	uORB::Subscription _wing_tilt_setpoint_sub{ORB_ID(wing_tilt_setpoint)};
@@ -134,6 +141,11 @@ private:
 	hrt_abstime _esc_arm_start{0};       // 0 = sequence not running
 	px4::atomic_bool _esc_arm_request{false};   // console-requested re-run (console thread -> Run)
 
+	// Post-arm recenter: the wiggle moves the wing once the ESC arms, so drive it back to the
+	// boot-zero position afterwards (ends on a real setpoint source, the deadband, or timeout).
+	bool _recenter{false};
+	hrt_abstime _recenter_start{0};
+
 	// Diagnostics; angles in radians.
 	uint8_t _active_source{wing_tilt_status_s::SOURCE_NONE};
 	float _setpoint{NAN};
@@ -152,6 +164,7 @@ private:
 		(ParamFloat<px4::params::TILT_GEAR>) _param_tilt_gear,
 		(ParamFloat<px4::params::TILT_ARM_V>) _param_tilt_arm_v,
 		(ParamFloat<px4::params::TILT_ARM_T>) _param_tilt_arm_t,
+		(ParamInt<px4::params::TILT_ARM_N>) _param_tilt_arm_n,
 		(ParamFloat<px4::params::TILT_ARM_DLY>) _param_tilt_arm_dly
 	)
 };

@@ -50,30 +50,47 @@ parameters:
 
       TILT_ARM_V:
         description:
-          short: ESC arming sequence command magnitude
+          short: ESC arming wiggle amplitude (sign = initial direction)
           long: |
-            The reversible tilt ESC arms only after seeing a command below neutral and then above
-            neutral. The controller runs that sequence (-TILT_ARM_V for TILT_ARM_T seconds, then
-            +TILT_ARM_V for TILT_ARM_T, then neutral) TILT_ARM_DLY seconds after the vehicle
-            outputs go live (arming/prearming), and on demand via `wing_tilt esc_arm`. Setpoints
-            are not serviced until the sequence completes. 0 disables it.
+            The controller runs a sinusoidal wiggle about neutral (amplitude |TILT_ARM_V|,
+            TILT_ARM_N cycles of period TILT_ARM_T, ending at neutral) TILT_ARM_DLY seconds
+            after the vehicle outputs go live (arming/prearming), and on demand via
+            `wing_tilt esc_arm`. Positive swings below neutral first; negative swings above
+            neutral first. Setpoints are not serviced until the wiggle completes. 0 disables it.
+
+            The greenjay/Hydra firmware on the tilt ESC arms after ~100 pulses within its
+            rc_deadzone (default +/-10 us) of its stored center, which sits slightly off our
+            1500 us neutral — a steady 1500 never arms it, while a slow small wiggle dwelling
+            near center does (bench-confirmed 2026-08-13: 0.1 / 2.0 s; arms in the first cycle).
         type: float
-        min: 0.0
+        min: -1.0
         max: 1.0
         decimal: 2
         increment: 0.05
-        default: 0.2
+        default: 0.1
 
       TILT_ARM_T:
         description:
-          short: ESC arming sequence per-phase duration
+          short: ESC arming wiggle period per cycle
         type: float
         unit: s
-        min: 0.05
-        max: 2.0
+        min: 0.1
+        max: 5.0
         decimal: 2
         increment: 0.05
-        default: 0.3
+        default: 2.0
+
+      TILT_ARM_N:
+        description:
+          short: ESC arming wiggle cycle count
+          long: |
+            The ESC reliably arms during the first cycle (bench 2026-08-13); the default keeps
+            one spare cycle for margin. Extra cycles after the ESC arms physically move the
+            wing, which the post-wiggle recenter then has to undo.
+        type: int32
+        min: 1
+        max: 20
+        default: 2
 
       TILT_ARM_DLY:
         description:

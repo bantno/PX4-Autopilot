@@ -36,6 +36,7 @@
 #include <lib/mathlib/mathlib.h>
 #include <matrix/math.hpp>
 
+#include <float.h>
 #include <string.h>
 
 WingTilt::WingTilt() :
@@ -107,7 +108,7 @@ void WingTilt::Run()
 	if (_actuator_armed_sub.copy(&armed)) {
 		const bool live = armed.armed || armed.prearmed;
 
-		if (live && !_outputs_live_prev && _param_tilt_arm_v.get() > 0.f) {
+		if (live && !_outputs_live_prev && fabsf(_param_tilt_arm_v.get()) > FLT_EPSILON) {
 			_esc_arm_scheduled = now + (hrt_abstime)(math::max(_param_tilt_arm_dly.get(), 0.f) * 1e6f);
 		}
 
@@ -127,19 +128,25 @@ void WingTilt::Run()
 	}
 
 	if (_esc_arm_start != 0) {
+		// Sinusoidal wiggle about neutral (steps don't register with this ESC's arming logic):
+		// TILT_ARM_N full cycles of period TILT_ARM_T at amplitude |TILT_ARM_V|; positive V
+		// swings below neutral first, negative above. Sampled at the 20 Hz loop rate.
 		const float t = (now - _esc_arm_start) * 1e-6f;
-		const float phase_t = _param_tilt_arm_t.get();
+		const float period = math::max(_param_tilt_arm_t.get(), 0.1f);
 		const float v = _param_tilt_arm_v.get();
+		const float duration = period * math::max((float)_param_tilt_arm_n.get(), 1.f);
 
-		if (t < phase_t) {
-			publishActuator(-v);
-
-		} else if (t < 2.f * phase_t) {
-			publishActuator(v);
+		if (t < duration) {
+			publishActuator(-v * sinf(2.f * M_PI_F * t / period));
 
 		} else {
 			publishActuator(0.f);
 			_esc_arm_start = 0;
+
+			// Once the ESC arms mid-wiggle the remaining cycles physically move the wing:
+			// actively drive it back to the boot-zero position.
+			_recenter = true;
+			_recenter_start = now;
 		}
 	}
 
@@ -171,7 +178,18 @@ void WingTilt::Run()
 	_encoder_valid = encoder_ok;
 	_measured_angle = encoder_ok ? (enc.angle * _encoder_to_wing) : NAN;
 
-	if (active < 0 || !encoder_ok) {
+	// Post-arm recenter ends when a real source takes over, the wing is back near zero, or the
+	// timeout expires (never chase an unreachable target forever).
+	if (_recenter
+	    && (active >= 0
+		|| (encoder_ok && fabsf(_measured_angle) < RECENTER_TOL)
+		|| (now - _recenter_start) > RECENTER_TIMEOUT)) {
+		_recenter = false;
+	}
+
+	const bool recentering = _recenter && encoder_ok;
+
+	if ((active < 0 && !recentering) || !encoder_ok) {
 		// No owner, or no trustworthy feedback: stop the wing (single zero command — the
 		// actuator is a rate plant) and reset the loop.
 		if (_was_driving) {
@@ -191,8 +209,21 @@ void WingTilt::Run()
 	}
 
 	_was_driving = true;
-	_active_source = (uint8_t)active;
-	_setpoint = _setpoints[active].angle;
+	_active_source = (active >= 0) ? (uint8_t)active : wing_tilt_status_s::SOURCE_RECENTER;
+	_setpoint = (active >= 0) ? _setpoints[active].angle : 0.f;
+
+	if (active < 0) {
+		// Recenter: constant-magnitude drive back to boot-zero, not the position PID — at the
+		// few degrees of error the wiggle leaves, the PID commands far less than the ESC's
+		// motion threshold and the wing never moves. This is a coarse park, not tracking; the
+		// stop condition above (|angle| < RECENTER_TOL) ends it.
+		_error = -_measured_angle;
+		_output = (_error > 0.f) ? RECENTER_DRIVE : -RECENTER_DRIVE;
+		publishActuator(_output);
+		publishStatus();
+		perf_end(_loop_perf);
+		return;
+	}
 
 	float dt = (_last_run > 0) ? (now - _last_run) * 1e-6f : 0.05f;
 	dt = math::constrain(dt, 0.001f, 0.2f);
@@ -286,7 +317,8 @@ int WingTilt::print_status()
 	const float r2d = 180.f / (float)M_PI;
 	const char *source_names[NUM_SOURCES] = {"sun_tracker", "console", "self_right"};
 	PX4_INFO("owner: %s  encoder: %s%s",
-		 (_active_source < NUM_SOURCES) ? source_names[_active_source] : "none",
+		 (_active_source < NUM_SOURCES) ? source_names[_active_source]
+		 : (_active_source == wing_tilt_status_s::SOURCE_RECENTER) ? "recenter" : "none",
 		 _encoder_valid ? "ok" : "invalid/stale",
 		 (_esc_arm_start != 0) ? "  [ESC arming sequence running]"
 		 : (_esc_arm_scheduled != 0) ? "  [ESC arming sequence scheduled]" : "");
@@ -330,7 +362,7 @@ int WingTilt::custom_command(int argc, char *argv[])
 			return PX4_ERROR;
 		}
 
-		if (inst->_param_tilt_arm_v.get() <= 0.f) {
+		if (fabsf(inst->_param_tilt_arm_v.get()) < FLT_EPSILON) {
 			PX4_ERR("esc_arm: sequence disabled (TILT_ARM_V is 0)");
 			return PX4_ERROR;
 		}
@@ -362,8 +394,8 @@ setpoints on wing_tilt_setpoint; the freshest setpoint from the highest-priority
 
 	PRINT_MODULE_USAGE_NAME("wing_tilt", "controller");
 	PRINT_MODULE_USAGE_COMMAND("start");
-	PRINT_MODULE_USAGE_COMMAND_DESCR("esc_arm", "Re-run the reversible-ESC arming sequence "
-					 "(below/above/neutral sweep; e.g. after power-cycling the ESC)");
+	PRINT_MODULE_USAGE_COMMAND_DESCR("esc_arm", "Re-run the reversible-ESC arming wiggle "
+					 "(sine about neutral; e.g. after power-cycling the ESC)");
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
 	return 0;
