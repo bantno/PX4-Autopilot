@@ -2,6 +2,9 @@
 
 Hardware: Pixhawk 4 (px4_fmu-v5), 4244_twin_tractor airframe. Design: [self_right_architecture.md](self_right_architecture.md).
 Righting defaults seeded from `pool_self-right_test_22_05_44.ulg` (2026-07-24 manual session).
+**2026-08-13 lake test findings + revised gains/timeout for open water:
+[self_right_lake_test_2026-08-13.md](self_right_lake_test_2026-08-13.md)** — in short:
+KP 3.0, `SR_TILT_TMO` 10, and `SR_TILT_TOL` 0.1 in water (0.05 below is bench-only).
 The wing tilt loop now lives in the **`wing_tilt` module** — the single owner of the tilt ESC.
 sun_tracker and self_right publish setpoints to it; priority: **self_right > console > sun_tracker**.
 
@@ -34,9 +37,12 @@ sun_tracker and self_right publish setpoints to it; priority: **self_right > con
    `ina226_charger` on every boot, and puts SELF_RIGHT on RC flight-mode slot 6.
 4. **Boot-position convention: power on with the wing LEVEL, every time.** The encoder zeroes at
    boot; all setpoints (`SR_TILT_SP -1.57` = props-up) are wing angle relative to that zero.
-5. **Tilt ESC arms itself** ~`TILT_ARM_DLY` (5 s) after boot: listen for the arm chirp once the
-   below/above/neutral sweep runs. No QGC actuators-tab dance. If the ESC was power-cycled
-   separately, re-run the sweep with `wing_tilt esc_arm`.
+5. **Tilt ESC arms itself** ~`TILT_ARM_DLY` (5 s) after boot: a slow sine wiggle about neutral
+   (`TILT_ARM_V 0.1`, `TILT_ARM_N 5` cycles of `TILT_ARM_T 2.0` s — bench-confirmed 2026-08-13)
+   runs and the ESC chirps; the wing then drives itself back to the boot-zero position. No QGC
+   actuators-tab dance. If the ESC was power-cycled separately, re-run with `wing_tilt esc_arm`.
+   (The greenjay firmware arms on pulses within ±10 µs of its stored center, which is slightly
+   off 1500 — steady neutral never arms it; the wiggle's slow center crossings do.)
 6. Confirm after reboot:
    - `wing_tilt status` → `owner: none`, `encoder: ok`
    - `self_right status` → state 0
@@ -78,8 +84,9 @@ Prep: fresh battery (Verify refuses on any low-battery warning), RC in hand, poo
 
 1. Power on dry land, **wing level**. Wait for EKF ready.
 2. Arm in MANUAL, throttle zero, then hands off the sticks (>15% deflection aborts).
-3. Place the plane in the pool inverted, wings level. Let it settle 3–5 s (the at-rest detector
-   needs stillness).
+3. Place the plane in the pool inverted, wings level. Let it settle 3–5 s. (No firmware at-rest
+   gate anymore — the land detector is unreliable on water, so the checks were removed 2026-08-13.
+   Settling before entry is now on you, the operator.)
 4. Flip to slot 6, hands off. Expected: ≤1 s verify → wing props-up (≤5 s) → 1 s throttle ramp →
    flip commits within ~3 s of throttle-up (the manual one took 2.7 s) → cut at 80° → buoyancy
    settles it → wing parks → **disarms itself**. Total under ~15 s.

@@ -30,10 +30,14 @@ a forced disarm** — success, timeout, verify failure, or pilot stick override.
   `Peripheral_via_Actuator_Set1`. Client modules never command the ESC directly — they publish
   wing-angle setpoints on `wing_tilt_setpoint`, arbitrated by priority (**self_right > console >
   sun_tracker**) and freshness (a source releases the wing by not republishing for 0.5 s).
-  The reversible ESC arms itself: `wing_tilt` runs the below/above/neutral arming sweep
-  (`TILT_ARM_V`/`TILT_ARM_T`) `TILT_ARM_DLY` seconds after the outputs go live (prearm at boot),
-  so the ESC finishes its own power-on init against a neutral signal first. `wing_tilt esc_arm`
-  re-runs it on demand — no QGC actuators-tab interaction needed.
+  The reversible ESC (greenjay/Hydra firmware on BLHeli_S hardware) arms itself: `wing_tilt`
+  runs a sinusoidal arming wiggle about neutral (`TILT_ARM_V` amplitude, `TILT_ARM_N` cycles of
+  period `TILT_ARM_T`) `TILT_ARM_DLY` seconds after the outputs go live (prearm at boot), so the
+  ESC finishes its own power-on init against a neutral signal first. The ESC arms on ~100 pulses
+  near its stored center, which sits slightly off 1500 µs — a steady neutral never arms it, the
+  slow wiggle does. Afterwards the controller drives the wing back to the boot-zero position
+  (the armed ESC moves during the wiggle). `wing_tilt esc_arm` re-runs it on demand — no QGC
+  actuators-tab interaction needed.
 - Wing-angle feedback: AS5600 magnetic encoder → `sensor_encoder` topic (`angle`, boot-zeroed at
   wing-level). In SITL the plant is the `wing_tilt_sim` module (integrates the actuator command into an
   angle and republishes `sensor_encoder`).
@@ -51,19 +55,21 @@ a forced disarm** — success, timeout, verify failure, or pilot stick override.
 
 ## 3. Gate logic (latched) + module-side verify
 
-Enterable **only** when inverted AND at rest, but **not droppable mid-maneuver**. Implemented as a
+Enterable **only** when inverted, but **not droppable mid-maneuver**. Implemented as a
 commander `HealthAndArmingCheck` (`selfRightingCheck`) that owns the `can_run` bit for
 `NAVIGATION_STATE_SELF_RIGHT`:
 
 ```
 inverted = dcm_z(q)(2) < -SR_INV_THR                          # e.g. SR_INV_THR = 0.7
-at_rest  = vehicle_land_detected.at_rest
-           && estimator_status_flags.cs_tilt_align
-entry_ok = inverted && at_rest
+entry_ok = SR_EN && inverted
 can_run  = entry_ok || (vehicle_status.nav_state == NAVIGATION_STATE_SELF_RIGHT)   # ← LATCH
 ```
 
-- The `|| already-in-mode` term is the **latch**: `at_rest` goes false the instant the flip starts,
+- **At-rest / land-detector checks were removed from the gate (2026-08-13)**: the land detector
+  is unreliable floating on water, so `vehicle_land_detected.at_rest` cannot gate entry. The
+  EKF tilt-align requirement moved out of the gate too — it is still enforced by the module's
+  VERIFY state below, which is the layer that actually refuses to move.
+- The `|| already-in-mode` term is the **latch**: `inverted` goes false as the flip completes,
   but because we are already in the mode `can_run` stays true and commander does not eject us.
 - Mode requirements: `mode_req_attitude` + `mode_req_angular_velocity` only — **no** position / global
   / home (none are trustworthy inverted on water).
@@ -73,12 +79,15 @@ On top of the gate, the module runs its own **VERIFY state** on entry, before an
 the following must hold within a 1 s window, else it disarms without moving:
 
 1. **Inverted** — `cos(θ) < -SR_INV_THR` (same test as the gate).
-2. **At rest** — `vehicle_land_detected.at_rest`.
-3. **EKF tilt aligned** — `estimator_status_flags.cs_tilt_align`.
-4. **Encoder fresh + trustworthy** — `sensor_encoder` newer than 1 s, `valid`, `zeroed`. The wing is
+2. **EKF tilt aligned** — `estimator_status_flags.cs_tilt_align`.
+3. **Encoder fresh + trustworthy** — `sensor_encoder` newer than 1 s, `valid`, `zeroed`. The wing is
    never driven open-loop.
-5. **Battery OK** — `battery_status` (primary instance) fresh, `connected`, warning below
+4. **Battery OK** — `battery_status` (primary instance) fresh, `connected`, warning below
    `WARNING_LOW`.
+
+(An **at rest** check via `vehicle_land_detected.at_rest` was originally item 2 here and in the
+gate; removed 2026-08-13 because the land detector is unreliable floating on water. Stillness
+before entry is now a procedure item, not a firmware gate.)
 
 ## 4. Maneuver controller — state machine
 
