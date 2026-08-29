@@ -550,6 +550,62 @@ def main():
         fig.tight_layout(rect=(0, 0, 1, 0.96))
         finish(fig, '07_stick_response.png')
 
+        # -------------------------------------------- 11. authority vs speed
+        # Control authority varies with dynamic pressure. Fit rate = K*(V/Vref)^n
+        # * stick for n = 0, 1, 2 and keep the law with the best R² per axis
+        # (classically roll ~V, pitch initial response ~V²; a narrow speed band
+        # or maneuver/speed correlation can make lower orders win).
+        vref = float(np.round(np.median(gs_g)))
+        fig, axs = plt.subplots(1, 2, figsize=(11, 4.6))
+        fig.suptitle(f'Control authority vs speed (reference {vref:.0f} m/s)')
+        for ax, (name, stick, rate, col) in zip(axs, cfg[:2]):
+            s = resample(t_mc, stick, t_grid)
+            r = resample(t_av, rate, t_grid)
+            laws = {}
+            for expn in (0, 1, 2):
+                reg = s * (gs_g / vref) ** expn
+                s0, r0 = reg - reg.mean(), r - r.mean()
+                cc = [np.corrcoef(s0[:len(s0) - k] if k else s0,
+                                  r0[k:] if k else r0)[0, 1] for k in range(51)]
+                k = int(np.nanargmax(np.abs(cc)))
+                rs, rr = (reg[:len(reg) - k], r[k:]) if k else (reg, r)
+                A = np.vstack([rs, np.ones_like(rs)]).T
+                (g, b), *_ = np.linalg.lstsq(A, rr, rcond=None)
+                pred = rs * g + b
+                r2 = 1 - np.sum((rr - pred)**2) / np.sum((rr - rr.mean())**2)
+                laws[expn] = (float(g), k, float(r2))
+            best = max(laws, key=lambda e: laws[e][2])
+            g_ref, kbest, r2b = laws[best]
+            resp_stats[name.lower()].update(
+                speed_law_exp=best, gain_at_vref=g_ref, vref=vref, r2_speed_law=r2b)
+            # per-speed-bin plain gains at the best law's lag
+            s_sh = s[:len(s) - kbest] if kbest else s
+            r_sh = r[kbest:] if kbest else r
+            V_sh = gs_g[:len(gs_g) - kbest] if kbest else gs_g
+            edges = np.quantile(V_sh, np.linspace(0, 1, 6))
+            xs, ys, ns = [], [], []
+            for lo, hi in zip(edges[:-1], edges[1:]):
+                m = (V_sh >= lo) & (V_sh < hi) & (np.abs(s_sh) > 0.05)
+                if m.sum() < 200:
+                    continue
+                A = np.vstack([s_sh[m], np.ones(m.sum())]).T
+                (g, b), *_ = np.linalg.lstsq(A, r_sh[m], rcond=None)
+                xs.append(float(V_sh[m].mean()))
+                ys.append(float(g))
+                ns.append(int(m.sum()))
+            if ns:
+                ax.scatter(xs, ys, s=[30 + 120 * n / max(ns) for n in ns],
+                           color=col, zorder=5, label='per-speed-bin fit (size = samples)')
+            vv = np.linspace(edges[0] - 1, edges[-1] + 1, 50)
+            ax.plot(vv, g_ref * (vv / vref) ** best, color=INK2, lw=1.6, ls=(0, (5, 2)),
+                    label=f'best law V^{best}: {g_ref:.0f} °/s @ {vref:.0f} m/s (R²={r2b:.2f})')
+            ax.set_xlabel('groundspeed (m/s)')
+            ax.set_ylabel('gain (deg/s per full stick)')
+            ax.set_title(name)
+            ax.legend(loc='upper left', fontsize=8)
+        fig.tight_layout(rect=(0, 0, 1, 0.92))
+        finish(fig, '11_authority_vs_speed.png')
+
     # ------------------------------------------------ 8. power & energy
     fig, axs = plt.subplots(4, 1, figsize=(11, 11), sharex=True)
     fig.suptitle('Battery and energy')
