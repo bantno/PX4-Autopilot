@@ -16,25 +16,29 @@ param set-default FW_LND_ANG 3
 
 param set-default NPFG_PERIOD 12
 
-# Rate-loop gains cut conservatively for the real mass props (4 kg, low inertia).
-# The previous values were inherited from the ~26-40x heavier Rascal-frame placeholder;
-# rate-loop gain scales ~1/inertia, so they were ~30x too hot (violent limit-cycle in SITL).
-# Scaled down per-axis by the inertia ratio (pitch /40, roll /26, yaw /35). Stable but
-# sluggish on purpose; run FW autotune from this baseline to refine. Originals in comments.
-param set-default FW_PR_P 0.022    # was 0.9
-param set-default FW_PR_FF 0.005   # was 0.2
-param set-default FW_PR_I 0.012    # was 0.5
+# Rate-loop gains. PX4's FW rate gains are normalized surface deflection per rad/s, so they
+# do not scale with inertia: control moment per deflection shrinks with airframe size about as
+# fast as inertia does. The previous values (P 0.015-0.037, FF 0.005-0.02) had been divided by
+# the inertia ratio from the old Rascal placeholder, ~20x below PX4 defaults; in Stabilized a
+# full stick then commanded only ~3% surface travel (surfaces looked dead on the bench).
+#
+# FF set from measured stick->rate authority in Manual (flight 214, 2026-08-28):
+# roll ~103 deg/s per full deflection -> 1/1.80 = 0.56; pitch ~152 deg/s @ 20 m/s -> 0.38.
+# P/I are PX4 defaults. Yaw has no flight data yet; defaults. Refine with FW autotune.
+param set-default FW_PR_P 0.08
+param set-default FW_PR_FF 0.4
+param set-default FW_PR_I 0.1
 param set-default TRIM_PITCH 0
 
-param set-default FW_RR_FF 0.02    # was 0.5
-param set-default FW_RR_P 0.015    # was 0.4
-param set-default FW_RR_I 0.027    # was 0.7
+param set-default FW_RR_FF 0.5
+param set-default FW_RR_P 0.05
+param set-default FW_RR_I 0.1
 
 param set-default FW_R_RMAX 56.15
 
-param set-default FW_YR_FF 0.01    # was 0.3
-param set-default FW_YR_P 0.037    # was 1.3
-param set-default FW_YR_I 0.02     # was 0.7
+param set-default FW_YR_FF 0.3
+param set-default FW_YR_P 0.05
+param set-default FW_YR_I 0.1
 
 param set-default FW_PSP_OFF 0
 param set-default FW_P_LIM_MIN -15
