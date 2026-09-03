@@ -92,7 +92,7 @@ private:
 
 	void publishStatus();
 
-	static constexpr int NUM_SOURCES = 3;                     // WingTiltSetpoint SOURCE_* count
+	static constexpr int NUM_SOURCES = 4;                     // WingTiltSetpoint SOURCE_* count
 	static constexpr hrt_abstime SETPOINT_TIMEOUT = 500_ms;   // source released when older
 	static constexpr hrt_abstime ENCODER_TIMEOUT = 200_ms;    // feedback considered stale when older
 	static constexpr hrt_abstime RECENTER_TIMEOUT = 10_s;     // give up driving back to zero after the wiggle

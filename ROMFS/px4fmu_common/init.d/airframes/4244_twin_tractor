@@ -149,3 +149,16 @@ self_right start
 # NOTE: -a 0x40 is the common breakout default; change it to match your strapped address.
 # -k keeps the driver retrying if the INA226 is not yet powered.
 ina226_charger start -X -b 4 -a 0x40 -k
+
+# Companion-computer float/fly autonomy (ahab-companion on a Raspberry Pi over Ethernet).
+# uXRCE-DDS client over the network (CFG 1000 = Ethernet); the agent runs on the Pi
+# (MicroXRCEAgent udp4 -p 8888). Set UXRCE_DDS_AG_IP to the Pi's address (int32 form) and
+# the FC's own address in /fs/microsd/net.cfg before use.
+param set-default UXRCE_DDS_CFG 1000
+param set-default UXRCE_DDS_PRT 8888
+
+# FLOAT while flying = RTL into the survey mission's landing pattern (DO_LAND_START + land items).
+param set-default RTL_TYPE 1
+
+# Log from boot so FLOAT decisions made while disarmed appear in the ULog.
+param set-default SDLOG_MODE 1

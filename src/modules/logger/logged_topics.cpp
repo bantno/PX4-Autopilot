@@ -128,6 +128,10 @@ void LoggedTopics::add_default_topics()
 	add_optional_topic("spoilers_setpoint", 1000);
 	add_optional_topic("sun_tracker_status", 100);
 	add_optional_topic("wing_tilt_status", 50);
+	add_optional_topic("wing_tilt_setpoint", 100);
+	add_optional_topic("autonomy_action", 1000);
+	add_optional_topic("autonomy_action_status", 1000);
+	add_optional_topic("autonomy_observation", 1000);
 	add_topic("system_power", 500);
 	add_optional_topic("takeoff_status", 1000);
 	add_optional_topic("tecs_status", 200);

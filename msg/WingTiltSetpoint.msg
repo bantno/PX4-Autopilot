@@ -6,8 +6,9 @@
 uint64 timestamp        # time since system start (microseconds)
 
 uint8 SOURCE_SUN_TRACKER = 0 # solar tracking (lowest priority)
-uint8 SOURCE_CONSOLE = 1     # bench hold (`self_right tilt` console command)
-uint8 SOURCE_SELF_RIGHT = 2  # inverted-recovery maneuver (highest priority)
+uint8 SOURCE_AUTONOMY = 1    # companion autonomy executor holding the wing in flight position
+uint8 SOURCE_CONSOLE = 2     # bench hold (`self_right tilt` console command)
+uint8 SOURCE_SELF_RIGHT = 3  # inverted-recovery maneuver (highest priority)
 uint8 source
 
 float32 angle           # wing tilt angle setpoint [rad], wing frame, relative to the boot-time zero;

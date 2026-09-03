@@ -315,7 +315,7 @@ void WingTilt::publishStatus()
 int WingTilt::print_status()
 {
 	const float r2d = 180.f / (float)M_PI;
-	const char *source_names[NUM_SOURCES] = {"sun_tracker", "console", "self_right"};
+	const char *source_names[NUM_SOURCES] = {"sun_tracker", "autonomy", "console", "self_right"};
 	PX4_INFO("owner: %s  encoder: %s%s",
 		 (_active_source < NUM_SOURCES) ? source_names[_active_source]
 		 : (_active_source == wing_tilt_status_s::SOURCE_RECENTER) ? "recenter" : "none",

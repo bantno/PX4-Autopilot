@@ -108,6 +108,31 @@ publications:
     type: px4_msgs::msg::GimbalDeviceAttitudeStatus
     rate_limit: 20.
 
+  # AHAB solar seaplane: companion-side float/fly autonomy inputs
+  - topic: /fmu/out/airspeed
+    type: px4_msgs::msg::Airspeed
+    rate_limit: 5.
+
+  - topic: /fmu/out/battery_charging
+    type: px4_msgs::msg::BatteryCharging
+    rate_limit: 1.
+
+  - topic: /fmu/out/sun_tracker_status
+    type: px4_msgs::msg::SunTrackerStatus
+    rate_limit: 1.
+
+  - topic: /fmu/out/self_right_status
+    type: px4_msgs::msg::SelfRightStatus
+    rate_limit: 5.
+
+  - topic: /fmu/out/wing_tilt_status
+    type: px4_msgs::msg::WingTiltStatus
+    rate_limit: 2.
+
+  - topic: /fmu/out/mission_result
+    type: px4_msgs::msg::MissionResult
+    rate_limit: 1.
+
 # Create uORB::Publication
 subscriptions:
   - topic: /fmu/in/register_ext_component_request
@@ -187,6 +212,19 @@ subscriptions:
 
   - topic: /fmu/in/actuator_servos
     type: px4_msgs::msg::ActuatorServos
+
+  # AHAB solar seaplane: companion-side float/fly autonomy outputs (logged by PX4)
+  - topic: /fmu/in/wing_tilt_setpoint
+    type: px4_msgs::msg::WingTiltSetpoint
+
+  - topic: /fmu/in/autonomy_action
+    type: px4_msgs::msg::AutonomyAction
+
+  - topic: /fmu/in/autonomy_action_status
+    type: px4_msgs::msg::AutonomyActionStatus
+
+  - topic: /fmu/in/autonomy_observation
+    type: px4_msgs::msg::AutonomyObservation
 
   - topic: /fmu/in/aux_global_position
     type: px4_msgs::msg::VehicleGlobalPosition
