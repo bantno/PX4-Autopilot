@@ -139,6 +139,13 @@ failsafes already act.
   (out) and `wing_tilt_setpoint` + the three autonomy topics (in); logger entries; airframe
   params `RTL_TYPE 1`, `SDLOG_MODE 1` (log from boot so disarmed FLOAT decisions are recorded),
   `UXRCE_DDS_CFG/PRT`.
+- **Versioned messages carry a version suffix on the wire**: PX4 publishes/subscribes
+  `msg/versioned/*` topics as `/fmu/out/<topic>_v<N>` (e.g. `/fmu/out/vehicle_status_v1`,
+  `/fmu/out/battery_status_v1`, `/fmu/out/airspeed_validated_v1`,
+  `/fmu/out/vehicle_local_position_v1`, `/fmu/in/arming_check_reply_v1`) when
+  `MESSAGE_VERSION >= 1`; unversioned topics (all three autonomy messages, `wing_tilt_*`,
+  `battery_charging`, `sun_tracker_status`, `self_right_status`) have no suffix. Companion
+  nodes must use the suffixed names (or run PX4's message translation node).
 - The executor uses the PX4 ROS 2 interface library (`RegisterExtComponentRequest`): a registered
   "Autonomy" mode + mode executor, `ActivateAlways` so it stays in charge while disarmed.
 - The message definitions do not change across transports; only the bridge configuration does.
