@@ -67,6 +67,18 @@ param set-default RWTO_TKOFF 1
 
 param set-default COM_PREARM_MODE 2
 
+# RC loss: motors off and surfaces to a fixed gentle right-hand spiral (Terminate drives every
+# output to its PWM_*_FAIL value; never clears). Values derived from flight 239 level trim
+# (AUX5 ~1630 / AUX6 ~1380 = +0.25 nose-up torque) plus ~8% right aileron. Untested in flight.
+param set-default NAV_RCL_ACT 5
+param set-default COM_RC_LOSS_T 5
+param set-default PWM_AUX_FAIL1 1000
+param set-default PWM_AUX_FAIL2 1000
+param set-default PWM_AUX_FAIL3 1460
+param set-default PWM_AUX_FAIL4 1460
+param set-default PWM_AUX_FAIL5 1650
+param set-default PWM_AUX_FAIL6 1350
+
 # Control allocation: fixed-wing with differential-thrust yaw, 2 motors.
 # CA_AIRFRAME 16 selects ActuatorEffectivenessFixedWingDiffThrust, which enables
 # yaw-by-differential-thrust on the ground (and on gear-switch override in air)
