@@ -61,14 +61,8 @@ param set-default RWTO_TKOFF 1
 
 param set-default COM_PREARM_MODE 2
 
-# --- TEST-ONLY: relax arming checks so the air-launch IC can be force-armed mid-flight.
-# Remove these before using this airframe for real / ground operations.
-param set-default NAV_DLL_ACT 0          # no datalink-loss failsafe (was 2; "No GCS" block)
-param set-default NAV_RCL_ACT 0          # no RC-loss failsafe
-param set-default COM_RC_IN_MODE 4       # RC/stick input not required (headless)
-param set-default COM_ARM_WO_GPS 1       # allow arming without GPS lock
-param set-default CBRK_AIRSPD_CHK 162128 # disable airspeed preflight check
-# --- end TEST-ONLY
+# TEST-ONLY arming/failsafe relaxations live in 4244_jsbsim_twin_tractor.post
+# (sourced by the posix rcS after this file), keeping this canonical airframe clean.
 
 # Control allocation: fixed-wing with differential-thrust yaw, 2 motors.
 # CA_AIRFRAME 16 selects ActuatorEffectivenessFixedWingDiffThrust, which enables

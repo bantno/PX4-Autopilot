@@ -1,0 +1,22 @@
+#!/bin/sh
+#
+# SITL-TEST-ONLY overlay for 4244_jsbsim_twin_tractor.
+#
+# Relaxes arming/failsafe checks so the headless air-launch IC can be
+# force-armed mid-flight without RC, GCS or GPS lock. This file is sourced
+# only by the posix rcS ("$autostart_file".post) and is excluded from
+# airframe matching, so none of this leaks into the canonical airframe:
+# delete this file (or the params below) for ground-ops-realistic testing.
+
+param set NAV_DLL_ACT 0          # no datalink-loss failsafe (default 2; "No GCS" block)
+param set NAV_RCL_ACT 0          # no RC-loss failsafe
+param set COM_RC_IN_MODE 4       # RC/stick input not required (headless)
+param set COM_ARM_WO_GPS 1       # allow arming without GPS lock
+param set CBRK_AIRSPD_CHK 162128 # disable airspeed preflight check
+
+# Companion float/fly autonomy loop (ahab-companion): mirror the hardware airframe's
+# autonomy params and slow the simulated battery so a FLY stage does not drain it.
+param set RTL_TYPE 1             # FLOAT mid-flight -> RTL to the mission landing pattern
+param set SDLOG_MODE 1           # log from boot so disarmed FLOAT decisions are recorded
+param set SIM_BAT_DRAIN 36000    # full-to-min drain time [s] (default 60 s)
+param set SIM_BAT_MIN_PCT 50     # floor the simulated battery at 50%

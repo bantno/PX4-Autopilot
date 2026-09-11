@@ -91,6 +91,7 @@ px4_add_romfs_files(
 	4242_gz_twin_tractor_seaplane
 	4243_gz_twin_cessna
 	4244_jsbsim_twin_tractor
+	4244_jsbsim_twin_tractor.post
 
 	6011_gazebo-classic_typhoon_h480
 	6011_gazebo-classic_typhoon_h480.post

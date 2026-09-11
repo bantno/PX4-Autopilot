@@ -51,8 +51,13 @@ case "$model" in
             MODEL_NAME="Rascal110-JSBSim"
             ;;
         twin_tractor)
-            # Visuals deferred: reuse the Rascal 3D model until a custom .ac/-set.xml exists
-            MODEL_NAME="Rascal110-JSBSim"
+            # Use the AHAB visual once the mesh exists (see models/TwinTractor/Models/README.md);
+            # fall back to the Rascal 3D model until then.
+            if [ -f "${src_path}/Tools/simulation/jsbsim/jsbsim_bridge/models/TwinTractor/Models/TwinTractor.ac" ]; then
+                MODEL_NAME="TwinTractor"
+            else
+                MODEL_NAME="Rascal110-JSBSim"
+            fi
             ;;
         malolo)
             MODEL_NAME="Malolo1"
