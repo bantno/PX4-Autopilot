@@ -71,6 +71,19 @@ param save
 
 Flashing keeps the saved parameters (calibrations, RC setup, output map). It does not wipe them.
 
+**Logging settings for a tuning flight** (set once, on the ground, same console):
+
+```
+param set SDLOG_PROFILE 2139    # was 2123: adds the "High rate" set -> attitude, setpoints, servo
+                                # commands and stick input at full rate instead of 10-20 Hz
+param set SDLOG_MODE 1          # log from boot, so the props-off Stabilized direction check is in a log
+param save
+```
+
+With the old profile the log had the rate loop at 400 Hz but attitude and its setpoint at 20 Hz
+and the servo outputs at 10 Hz, which is too coarse to judge the attitude loop. Logging from boot
+makes one log per power-up; fine on the card, and you get the ground checks recorded.
+
 ## 2. Packing list
 
 Spares are already packed; this is the verify-it-is-in-the-car list.
@@ -434,7 +447,7 @@ Open the `.ulg` in PlotJuggler (it has a ULog loader). Put these on the same tim
 | Does pitch track? | `vehicle_attitude_setpoint/pitch_body` vs pitch from `vehicle_attitude/q` |
 | Rate loop | `vehicle_rates_setpoint/roll` vs `vehicle_angular_velocity/xyz[0]`; same with `pitch` vs `xyz[1]` |
 | What the controller asked for | `vehicle_torque_setpoint/xyz[0..2]` (roll, pitch, yaw torque, ±1) |
-| What the servos got | `actuator_outputs` instance 1 (the AUX rail), `output[2..5]` in µs |
+| What the servos got | `actuator_servos/control[0..3]` (±1, full rate with the High-rate profile) or `actuator_outputs` instance 1 (the AUX rail), `output[2..5]` in µs at 10 Hz |
 | Pilot input | `manual_control_setpoint/roll`, `pitch`, `throttle` (throttle is −1…+1, mid = 0) |
 | Airspeed | `airspeed_validated/calibrated_airspeed_m_s` |
 | Integrator wind-up | `rate_ctrl_status/rollspeed_integ`, `pitchspeed_integ` |
