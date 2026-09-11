@@ -1,0 +1,5 @@
+menuconfig DRIVERS_RUNCAM
+	bool "runcam"
+	default n
+	---help---
+		Enable support for RunCam Device Protocol cameras (Split 4, Hybrid, Thumb Pro, ...)

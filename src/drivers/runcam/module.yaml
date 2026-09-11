@@ -1,0 +1,43 @@
+module_name: RunCam Device Protocol camera
+serial_config:
+    - command: runcam start -d ${SERIAL_DEV}
+      port_config_param:
+        name: RUNCAM_PORT_CFG
+        group: Camera Control
+        description_extended: |
+            RunCam Device Protocol camera (Split 4, Hybrid, Thumb Pro, ...).
+            The camera UART runs at 115200 8N1.
+
+parameters:
+    - group: Camera Control
+      definitions:
+        RUNCAM_RC_CH:
+            description:
+                short: RunCam recording RC switch
+                long: |
+                    Manual control AUX channel (RC_MAP_AUXn) that starts/stops
+                    video recording. Switch above +0.5 starts recording, below
+                    -0.5 stops it. Acts on switch transitions only, so shell and
+                    MAVLink commands are not overridden by a static switch.
+            type: enum
+            values:
+                0: Disabled
+                1: AUX1
+                2: AUX2
+                3: AUX3
+                4: AUX4
+                5: AUX5
+                6: AUX6
+            default: 0
+        RUNCAM_ARM_REC:
+            description:
+                short: RunCam recording follows arming
+                long: |
+                    Automatically start recording when the vehicle arms and,
+                    optionally, stop when it disarms.
+            type: enum
+            values:
+                0: Disabled
+                1: Start on arm
+                2: Start on arm, stop on disarm
+            default: 0
