@@ -40,4 +40,4 @@ parameters:
                 0: Disabled
                 1: Start on arm
                 2: Start on arm, stop on disarm
-            default: 0
+            default: 2

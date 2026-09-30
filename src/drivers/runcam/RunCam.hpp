@@ -86,6 +86,19 @@ public:
 
 	void request(Request r);
 
+	/**
+	 * Settings access, called from the shell. Blocks the caller (not the work queue)
+	 * until the camera answers or times out, then prints the result.
+	 * @param command CMD_GET_SETTINGS (list children of a folder), CMD_READ_SETTING_DETAIL or CMD_WRITE_SETTING
+	 * @param value new setting value, only for CMD_WRITE_SETTING
+	 */
+	int querySettings(uint8_t command, uint8_t setting_id, const uint8_t *value = nullptr, size_t value_len = 0);
+
+	// device setting access (protocol v1.0 "settings access" feature)
+	static constexpr uint8_t CMD_GET_SETTINGS = 0x10;
+	static constexpr uint8_t CMD_READ_SETTING_DETAIL = 0x11;
+	static constexpr uint8_t CMD_WRITE_SETTING = 0x13;
+
 private:
 	static constexpr uint32_t BAUDRATE = 115200;
 
@@ -120,6 +133,37 @@ private:
 	static constexpr hrt_abstime RUN_INTERVAL_US = 50_ms;
 	static constexpr hrt_abstime MIN_COMMAND_GAP_US = 300_ms; // camera button emulation needs settle time
 
+	// setting responses: 0xCC | remaining chunks | data length | data... | CRC, up to 12 chunks of 62 bytes
+	static constexpr unsigned QUERY_MAX_CHUNKS = 12;
+	static constexpr unsigned QUERY_MAX_CHUNK_DATA = 62;
+	static constexpr hrt_abstime QUERY_TIMEOUT_US = 1_s;
+	static constexpr unsigned WRITE_RESPONSE_LEN = 4; // header, result code, menu changed flag, crc
+
+	enum QueryState : int {
+		QUERY_IDLE = 0,
+		QUERY_CLAIMED,   // owner is filling in the request, the work queue must not start it yet
+		QUERY_REQUESTED,
+		QUERY_WAITING,
+		QUERY_DONE,
+		QUERY_FAILED,
+	};
+
+	// Recording state detection. Protocol v1 cannot report whether the camera is recording, but the
+	// SD card free space (reserved setting 3, "free/total" in MB) falls while it records.
+	static constexpr uint8_t SETTING_SDCARD_CAPACITY = 3;
+	static constexpr hrt_abstime SD_POLL_INTERVAL_US = 1_s;
+	static constexpr hrt_abstime SD_STEADY_WINDOW_US = 5_s;  // free space unchanged this long = stopped
+	static constexpr hrt_abstime SD_STALE_US = 3_s;          // no reading this long = detection unavailable
+	static constexpr hrt_abstime REC_SETTLE_US = 7_s;        // wait after a button press before judging it
+	static constexpr hrt_abstime REC_DECIDE_TIMEOUT_US = 10_s; // longest wait for the state before giving up
+	static constexpr int REC_MAX_ATTEMPTS = 3; // explicit start while unknown + two power button presses
+
+	enum class RecState : int {
+		Unknown = 0,
+		Recording,
+		Stopped,
+	};
+
 	void Run() override;
 
 	bool openPort();
@@ -127,11 +171,30 @@ private:
 	bool sendCameraControl(uint8_t action);
 	void sendDeviceInfoRequest();
 	void pollDeviceInfoResponse();
+	void handleSettingsQuery();
+	void sendQueryChunk();
+	void pollQueryResponse();
+	void failQuery(const char *reason);
+	void finishQuery();
+	bool startInternalQuery(uint8_t command, uint8_t setting_id);
+	void handleSdCapacity(bool ok);
+	bool detectionAvailable() const;
+	RecState detectedState() const;
+	bool setRecordingTarget(RecState target);
+	void updateRecording();
+	void printSettingsList() const;
+	void printSettingDetail() const;
+	void printWriteResult() const;
 	static uint8_t crc8DvbS2(const uint8_t *data, size_t len);
 
 	bool startRecording();
 	bool stopRecording();
 	bool toggleRecording();
+
+	// fallback when the recording state cannot be detected: act on the last commanded state
+	bool legacyStartRecording();
+	bool legacyStopRecording();
+	bool legacyToggleRecording();
 
 	void handleRequest();
 	void handleRcSwitch();
@@ -150,6 +213,38 @@ private:
 	uint16_t _features{0};
 	uint8_t _rx_buf[16] {};
 	unsigned _rx_len{0};
+
+	// settings probe: the shell thread fills the request and waits, the work queue runs the exchange
+	px4::atomic<int> _query_state{QUERY_IDLE};
+	uint8_t _query_command{0};
+	uint8_t _query_setting_id{0};
+	uint8_t _query_value[QUERY_MAX_CHUNK_DATA - 1] {};
+	uint8_t _query_value_len{0};
+	uint8_t _query_chunk{0};
+	uint8_t _query_chunks_left{0};
+	hrt_abstime _query_sent_time{0};
+	uint8_t _query_rx[QUERY_MAX_CHUNK_DATA + 4] {};
+	unsigned _query_rx_len{0};
+	uint8_t _query_data[QUERY_MAX_CHUNKS * QUERY_MAX_CHUNK_DATA] {};
+	unsigned _query_data_len{0};
+	const char *_query_error{nullptr};
+	bool _query_internal{false};                  // issued by the work queue itself (SD polling), not the shell
+	px4::atomic<bool> _query_shell_waiting{false}; // a shell is waiting for a DONE/FAILED result
+
+	// SD card free space tracking
+	bool _sd_valid{false};
+	uint32_t _sd_free_mb{0};
+	uint32_t _sd_total_mb{0};
+	hrt_abstime _sd_last_poll{0};
+	hrt_abstime _sd_last_reading{0};
+	hrt_abstime _sd_steady_since{0};  // last free space drop, or when tracking (re)started
+	bool _sd_drop_seen{false};
+
+	// requested recording state, driven to by pressing the camera buttons and confirmed from the SD card
+	RecState _rec_target{RecState::Unknown}; // Unknown = nothing pending
+	int _rec_attempts{0};
+	hrt_abstime _rec_target_time{0};
+	hrt_abstime _rec_last_action{0};
 
 	// tracked camera state (protocol v1 has no recording-state query; this is what we last commanded)
 	bool _recording{false};
