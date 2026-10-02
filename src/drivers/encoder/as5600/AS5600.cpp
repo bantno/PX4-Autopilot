@@ -149,8 +149,81 @@ void AS5600::custom_method(const BusCLIArguments &cli)
 		PX4_INFO("AS5600: zero reference will be re-latched on next sample");
 		break;
 
+	case 2:
+		regdump();
+		break;
+
 	default:
 		break;
+	}
+}
+
+void AS5600::regdump()
+{
+	uint8_t cfg[9] = {};      // ZMCO, ZPOS(2), MPOS(2), MANG(2), CONF(2)
+	uint8_t status = 0;
+	uint8_t raw[2] = {};
+	uint8_t ang[2] = {};
+	uint8_t agc = 0;
+	uint8_t mag[2] = {};
+
+	if (read_reg(AS5600_REG_ZMCO, cfg, sizeof(cfg)) != PX4_OK
+	    || read_reg(AS5600_REG_STATUS, &status, 1) != PX4_OK
+	    || read_reg(AS5600_REG_RAW_ANGLE, raw, 2) != PX4_OK
+	    || read_reg(AS5600_REG_ANGLE, ang, 2) != PX4_OK
+	    || read_reg(AS5600_REG_AGC, &agc, 1) != PX4_OK
+	    || read_reg(AS5600_REG_MAGNITUDE, mag, 2) != PX4_OK) {
+		PX4_ERR("regdump: I2C read failed");
+		return;
+	}
+
+	const unsigned zmco = cfg[0] & 0x03;
+	const unsigned zpos = ((cfg[1] & 0x0F) << 8) | cfg[2];
+	const unsigned mpos = ((cfg[3] & 0x0F) << 8) | cfg[4];
+	const unsigned mang = ((cfg[5] & 0x0F) << 8) | cfg[6];
+	const unsigned conf = ((cfg[7] & 0x3F) << 8) | cfg[8];
+	const unsigned raw_angle = ((raw[0] & 0x0F) << 8) | raw[1];
+	const unsigned angle = ((ang[0] & 0x0F) << 8) | ang[1];
+	const unsigned magnitude = ((mag[0] & 0x0F) << 8) | mag[1];
+
+	const unsigned pm = conf & 0x3;
+	const unsigned hyst = (conf >> 2) & 0x3;
+	const unsigned outs = (conf >> 4) & 0x3;
+	const unsigned pwmf = (conf >> 6) & 0x3;
+	const unsigned sf = (conf >> 8) & 0x3;
+	const unsigned fth = (conf >> 10) & 0x7;
+	const unsigned wd = (conf >> 13) & 0x1;
+
+	static const char *pm_str[] = {"NOM (always on)", "LPM1 (5ms poll)", "LPM2 (20ms poll)", "LPM3 (100ms poll)"};
+	static const char *hyst_str[] = {"OFF", "1 LSB", "2 LSB", "3 LSB"};
+	static const char *sf_str[] = {"16x (2.2ms)", "8x (1.1ms)", "4x (0.55ms)", "2x (0.286ms)"};
+
+	PX4_INFO("ZMCO %u (OTP burns used)  ZPOS %u  MPOS %u  MANG %u", zmco, zpos, mpos, mang);
+	PX4_INFO("CONF 0x%04x: PM %s  HYST %s  OUTS %u  PWMF %u  SF %s  FTH %u  WD %u",
+		 conf, pm_str[pm], hyst_str[hyst], outs, pwmf, sf_str[sf], fth, wd);
+	PX4_INFO("STATUS 0x%02x: MD %u  ML(weak) %u  MH(strong) %u",
+		 status, !!(status & AS5600_STATUS_MD), !!(status & AS5600_STATUS_ML), !!(status & AS5600_STATUS_MH));
+	PX4_INFO("RAW_ANGLE %u  ANGLE %u  AGC %u  MAGNITUDE %u", raw_angle, angle, agc, magnitude);
+
+	// The driver uses RAW_ANGLE as an unscaled 12-bit (4096/rev) angle; flag anything that breaks that.
+	if (!(status & AS5600_STATUS_MD)) {
+		PX4_WARN("magnet not detected: driver publishes valid=false");
+	}
+
+	if (status & (AS5600_STATUS_ML | AS5600_STATUS_MH)) {
+		PX4_WARN("magnet field out of range (AGC saturated): angle may be nonlinear");
+	}
+
+	if (pm != 0) {
+		PX4_WARN("low-power mode: RAW_ANGLE updates slower than the 10 ms sample rate");
+	}
+
+	if (wd) {
+		PX4_WARN("watchdog on: chip drops to LPM3 after 1 min without motion");
+	}
+
+	if (zmco != 0 || zpos != 0 || mpos != 0 || mang != 0) {
+		PX4_INFO("range programmed (ZPOS/MPOS/MANG/ZMCO): affects ANGLE only, RAW_ANGLE unaffected");
 	}
 }
 
@@ -170,6 +243,7 @@ void AS5600::print_usage()
 	PRINT_MODULE_USAGE_PARAMS_I2C_SPI_DRIVER(true, false);
 	PRINT_MODULE_USAGE_PARAMS_I2C_ADDRESS(AS5600_BASEADDR);
 	PRINT_MODULE_USAGE_COMMAND_DESCR("reset", "Re-latch the level (zero) reference (hold wing level)");
+	PRINT_MODULE_USAGE_COMMAND_DESCR("regdump", "Print chip config/magnet registers and check them against driver assumptions");
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 }
 
@@ -204,6 +278,13 @@ extern "C" __EXPORT int as5600_main(int argc, char *argv[])
 	if (!strcmp(verb, "reset")) {
 		cli.custom1 = 1;
 		return ThisDriver::module_custom_method(cli, iterator);
+	}
+
+	if (!strcmp(verb, "regdump")) {
+		// Run in the shell's thread so the output reaches the (MAVLink) shell; each register read is a
+		// single bus-locked I2C transaction, so it cannot interleave with the sampling work item.
+		cli.custom1 = 2;
+		return ThisDriver::module_custom_method(cli, iterator, false);
 	}
 
 	ThisDriver::print_usage();

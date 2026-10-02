@@ -59,9 +59,15 @@
 #define AS5600_RESOLUTION      4096.0f  // 12-bit counts per revolution
 
 /* Register map (8-bit register addressing) */
+#define AS5600_REG_ZMCO        0x00     // ZMCO..CONF (0x00-0x08) read as one burst for regdump
 #define AS5600_REG_STATUS      0x0B     // MH (bit3), ML (bit4), MD (bit5)
 #define AS5600_REG_RAW_ANGLE   0x0C     // 0x0C high (bits 11:8), 0x0D low (bits 7:0)
+#define AS5600_REG_ANGLE       0x0E
+#define AS5600_REG_AGC         0x1A
+#define AS5600_REG_MAGNITUDE   0x1B
 
+#define AS5600_STATUS_MH       (1 << 3) // magnet too strong
+#define AS5600_STATUS_ML       (1 << 4) // magnet too weak
 #define AS5600_STATUS_MD       (1 << 5) // magnet detected
 
 class AS5600 : public device::I2C, public I2CSPIDriver<AS5600>
@@ -85,6 +91,8 @@ private:
 	int probe() override;
 
 	int collect();
+
+	void regdump();
 
 	// Read len bytes starting at reg using the AS5600's auto-increment.
 	int read_reg(uint8_t reg, uint8_t *buf, uint8_t len);

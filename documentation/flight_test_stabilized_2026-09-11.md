@@ -21,7 +21,7 @@ The firmware for this test lives on branch **`flight-test-2026-09-11`** of
 failsafe below, and the airframe config. Flash it from Brian's laptop (toolchain installed) or
 any machine with the PX4 toolchain.
 
-**Option A: build and flash from the terminal**
+**Option A: build and flash from the terminal... make sure Qgc is closed and that you run this on host terminal and not conatiner**
 
 ```
 cd ~/PX4/PX4-Autopilot                      # or a fresh: git clone --recursive https://github.com/bantno/PX4-Autopilot.git
@@ -67,6 +67,12 @@ param set PWM_AUX_FAIL4 1460
 param set PWM_AUX_FAIL5 1650
 param set PWM_AUX_FAIL6 1350
 param save
+
+
+#Starting Gains 
+param set TILT_KP 20.0
+param set TILT_KD 0.3
+param set TILT_KI 0
 ```
 
 Flashing keeps the saved parameters (calibrations, RC setup, output map). It does not wipe them.
