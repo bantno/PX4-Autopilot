@@ -1,0 +1,48 @@
+# ROS <-> Gazebo bridge config for the AHAB seaplane.
+# VEHICLE_NAMESPACE is substituted by ahab_bringup/launch/sim.launch.py.
+
+- ros_topic_name: "/clock"
+  gz_topic_name: "/clock"
+  ros_type_name: "rosgraph_msgs/msg/Clock"
+  gz_type_name: "gz.msgs.Clock"
+  direction: GZ_TO_ROS
+
+# Joint state (from gz JointStatePublisher in simulation/gz.xacro)
+- ros_topic_name: "/VEHICLE_NAMESPACE/joint_states"
+  gz_topic_name: "/VEHICLE_NAMESPACE/joint_states"
+  ros_type_name: "sensor_msgs/msg/JointState"
+  gz_type_name: "gz.msgs.Model"
+  direction: GZ_TO_ROS
+
+# Prop speed commands [rad/s]: velocity[0]=left, velocity[1]=right
+# (gz MulticopterMotorModel, same topic PX4's gz bridge publishes)
+- ros_topic_name: "/VEHICLE_NAMESPACE/command/motor_speed"
+  gz_topic_name: "/VEHICLE_NAMESPACE/command/motor_speed"
+  ros_type_name: "actuator_msgs/msg/Actuators"
+  gz_type_name: "gz.msgs.Actuators"
+  direction: ROS_TO_GZ
+
+# Control surface commands [rad]
+- ros_topic_name: "/VEHICLE_NAMESPACE/cmd/aileron_left"
+  gz_topic_name: "/VEHICLE_NAMESPACE/cmd/aileron_left"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+
+- ros_topic_name: "/VEHICLE_NAMESPACE/cmd/aileron_right"
+  gz_topic_name: "/VEHICLE_NAMESPACE/cmd/aileron_right"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+
+- ros_topic_name: "/VEHICLE_NAMESPACE/cmd/ruddervator_left"
+  gz_topic_name: "/VEHICLE_NAMESPACE/cmd/ruddervator_left"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+
+- ros_topic_name: "/VEHICLE_NAMESPACE/cmd/ruddervator_right"
+  gz_topic_name: "/VEHICLE_NAMESPACE/cmd/ruddervator_right"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ

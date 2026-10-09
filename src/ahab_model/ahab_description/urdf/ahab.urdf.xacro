@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="ahab">
+
+  <!-- Namespace for multi-vehicle support -->
+  <xacro:arg name="namespace" default="ahab00"/>
+  <!-- Include Gazebo plugins (joint states, prop/surface controllers) -->
+  <xacro:arg name="sim" default="true"/>
+
+  <!-- Include the AHAB base definition -->
+  <xacro:include filename="$(find ahab_description)/models/ahab_base/ahab_base.xacro"/>
+  <xacro:include filename="$(find ahab_description)/models/ahab_base/simulation/gz.xacro"/>
+
+  <!-- Base link (empty) -->
+  <link name="$(arg namespace)/base_link"/>
+
+  <!-- Instantiate the AHAB airframe -->
+  <xacro:ahab_base namespace="$(arg namespace)"/>
+
+  <!-- Fixed joint from base_link to frame_link -->
+  <joint name="$(arg namespace)/frame_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="$(arg namespace)/base_link"/>
+    <child link="$(arg namespace)/frame_link"/>
+  </joint>
+
+  <xacro:if value="$(arg sim)">
+    <xacro:ahab_gz namespace="$(arg namespace)"/>
+  </xacro:if>
+
+</robot>

@@ -1,0 +1,207 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="ahab_base">
+
+  <!--
+    AHAB seaplane: hull + wing + V-tail (ahab_main.glb), two ailerons, two
+    ruddervators and two tractor props.
+
+    Frame convention (frame_link): x forward (nose), y left, z up.
+    All GLB meshes are glTF Y-up exports from Blender, already in metres, so
+    the hull visual gets the same rpy="1.5708 0 0" as the x650 in asdl_roomba.
+
+    Joint locations were measured from the cutouts in ahab_main.glb:
+      ailerons      hinge x=-0.118, cutout y=0.455..0.780, z=0.135
+      ruddervators  hinge x=-0.5955, cutout along panel at 38.8 deg dihedral
+      props         motor pads at y=+-0.237, z=0.141, pad face at x=0.087
+    Mass and inertia come from the JSBSim TwinTractor model (4.0 kg total).
+  -->
+
+  <xacro:property name="mesh_dir" value="package://ahab_description/models/ahab_base/meshes"/>
+
+  <!-- Control surfaces -->
+  <xacro:property name="aileron_x" value="-0.118"/>
+  <xacro:property name="aileron_y" value="0.6178"/>
+  <xacro:property name="aileron_z" value="0.135"/>
+  <xacro:property name="aileron_limit" value="0.52"/>  <!-- ~30 deg -->
+
+  <xacro:property name="vtail_dihedral" value="0.6775"/>  <!-- 38.82 deg -->
+  <xacro:property name="vtail_x" value="-0.5955"/>
+  <xacro:property name="vtail_y" value="0.1508"/>
+  <xacro:property name="vtail_z" value="0.169"/>
+  <xacro:property name="vtail_limit" value="0.52"/>
+
+  <!-- Props (MasterAirscrew 10x9x3), hub just ahead of the motor pad face (x=0.087) -->
+  <xacro:property name="prop_x" value="0.092"/>
+  <xacro:property name="prop_y" value="0.2373"/>
+  <xacro:property name="prop_z" value="0.1408"/>
+
+  <!-- Masses: frame mass is the 4.0 kg total minus the moving parts -->
+  <xacro:property name="aileron_mass" value="0.020"/>
+  <xacro:property name="vtail_mass" value="0.015"/>
+  <xacro:property name="prop_mass" value="0.025"/>
+  <xacro:property name="frame_mass" value="${4.0 - 2*aileron_mass - 2*vtail_mass - 2*prop_mass}"/>
+
+  <!-- Aileron: hinge at link origin, chord extends aft (-x), rotates about y -->
+  <xacro:macro name="ahab_aileron" params="namespace side reflect">
+    <link name="${namespace}/aileron_${side}">
+      <inertial>
+        <origin xyz="-0.025 0 0" rpy="0 0 0"/>
+        <mass value="${aileron_mass}"/>
+        <inertia ixx="${aileron_mass*(0.325**2)/12}" ixy="0" ixz="0"
+                 iyy="${aileron_mass*(0.055**2)/12}" iyz="0"
+                 izz="${aileron_mass*(0.325**2 + 0.055**2)/12}"/>
+      </inertial>
+      <visual name="aileron_${side}_visual">
+        <origin xyz="0 0 0" rpy="0 0 ${pi}"/>
+        <geometry>
+          <mesh filename="${mesh_dir}/aileron.glb"/>
+        </geometry>
+      </visual>
+    </link>
+
+    <joint name="${namespace}/aileron_${side}_joint" type="revolute">
+      <parent link="${namespace}/frame_link"/>
+      <child link="${namespace}/aileron_${side}"/>
+      <origin xyz="${aileron_x} ${reflect*aileron_y} ${aileron_z}" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="${-aileron_limit}" upper="${aileron_limit}" effort="10" velocity="10"/>
+      <dynamics damping="0.001" friction="0.0"/>
+    </joint>
+  </xacro:macro>
+
+  <!--
+    Ruddervator: link y runs outward along the tail panel, x forward, so the
+    hinge axis is y. Left panel is rolled +dihedral; the right panel is rolled
+    (pi - dihedral) so its y also points outward/up without mirroring x. The
+    right hinge axis is flipped so positive is trailing edge up on both sides.
+  -->
+  <xacro:macro name="ahab_ruddervator" params="namespace side reflect">
+    <link name="${namespace}/ruddervator_${side}">
+      <inertial>
+        <origin xyz="-0.025 0 0" rpy="0 0 0"/>
+        <mass value="${vtail_mass}"/>
+        <inertia ixx="${vtail_mass*(0.255**2)/12}" ixy="0" ixz="0"
+                 iyy="${vtail_mass*(0.051**2)/12}" iyz="0"
+                 izz="${vtail_mass*(0.255**2 + 0.051**2)/12}"/>
+      </inertial>
+      <visual name="ruddervator_${side}_visual">
+        <origin xyz="0 0 0" rpy="0 ${pi/2} 0"/>
+        <geometry>
+          <mesh filename="${mesh_dir}/ruddervator.glb"/>
+        </geometry>
+      </visual>
+    </link>
+
+    <joint name="${namespace}/ruddervator_${side}_joint" type="revolute">
+      <parent link="${namespace}/frame_link"/>
+      <child link="${namespace}/ruddervator_${side}"/>
+      <origin xyz="${vtail_x} ${reflect*vtail_y} ${vtail_z}"
+              rpy="${vtail_dihedral if reflect > 0 else pi - vtail_dihedral} 0 0"/>
+      <axis xyz="0 ${reflect} 0"/>
+      <limit lower="${-vtail_limit}" upper="${vtail_limit}" effort="10" velocity="10"/>
+      <dynamics damping="0.001" friction="0.0"/>
+    </joint>
+  </xacro:macro>
+
+  <!--
+    Prop: link z points forward along the thrust axis (joint pitched +90 deg),
+    because the gz MulticopterMotorModel applies thrust along link +z.
+  -->
+  <xacro:macro name="ahab_prop" params="namespace side reflect">
+    <link name="${namespace}/rotor_${side}">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <mass value="${prop_mass}"/>
+        <inertia ixx="${prop_mass*(0.127**2)/6}" ixy="0" ixz="0"
+                 iyy="${prop_mass*(0.127**2)/6}" iyz="0"
+                 izz="${prop_mass*(0.127**2)/3}"/>
+      </inertial>
+      <visual name="rotor_${side}_visual">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="${mesh_dir}/prop_10x9x3.glb"/>
+        </geometry>
+      </visual>
+    </link>
+
+    <joint name="${namespace}/rotor_${side}_joint" type="continuous">
+      <parent link="${namespace}/frame_link"/>
+      <child link="${namespace}/rotor_${side}"/>
+      <origin xyz="${prop_x} ${reflect*prop_y} ${prop_z}" rpy="0 ${pi/2} 0"/>
+      <axis xyz="0 0 1"/>
+      <dynamics damping="0.0001" friction="0.0"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="ahab_base" params="namespace:=ahab00">
+
+    <!--
+      Low hull friction (skid-like) so the plane can slide on the ground.
+      sdformat only applies mu1/mu2 to collisions without a name attribute,
+      so the frame_link collisions below are left unnamed.
+    -->
+    <gazebo reference="${namespace}/frame_link">
+      <mu1>0.2</mu1>
+      <mu2>0.2</mu2>
+    </gazebo>
+
+    <material name="ahab_white">
+      <color rgba="1 1 1 1"/>
+    </material>
+
+    <!-- Frame: hull, wing and fixed V-tail -->
+    <link name="${namespace}/frame_link">
+      <inertial>
+        <!-- CG estimate: roughly quarter chord of the wing -->
+        <origin xyz="0.022 0 0" rpy="0 0 0"/>
+        <mass value="${frame_mass}"/>
+        <inertia ixx="0.1012" ixy="0" ixz="0"
+                 iyy="0.0521" iyz="0"
+                 izz="0.073"/>
+      </inertial>
+
+      <visual name="frame_visual">
+        <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+        <geometry>
+          <mesh filename="${mesh_dir}/ahab_main.glb"/>
+        </geometry>
+        <material name="ahab_white"/>
+      </visual>
+
+      <!-- Temporary box collisions fitted to the mesh bounds -->
+      <!-- hull -->
+      <collision>
+        <origin xyz="0.015 0 -0.035" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.93 0.16 0.21"/>
+        </geometry>
+      </collision>
+
+      <!-- wing -->
+      <collision>
+        <origin xyz="-0.0395 0 0.143" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.254 1.82 0.04"/>
+        </geometry>
+      </collision>
+
+      <!-- tail_boom -->
+      <collision>
+        <origin xyz="-0.35 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.3 0.1 0.13"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <xacro:ahab_aileron namespace="${namespace}" side="left" reflect="1"/>
+    <xacro:ahab_aileron namespace="${namespace}" side="right" reflect="-1"/>
+
+    <xacro:ahab_ruddervator namespace="${namespace}" side="left" reflect="1"/>
+    <xacro:ahab_ruddervator namespace="${namespace}" side="right" reflect="-1"/>
+
+    <xacro:ahab_prop namespace="${namespace}" side="left" reflect="1"/>
+    <xacro:ahab_prop namespace="${namespace}" side="right" reflect="-1"/>
+
+  </xacro:macro>
+</robot>

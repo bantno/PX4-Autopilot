@@ -1,0 +1,149 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="ahab_gz">
+
+  <!--
+    Gazebo (gz-sim) plugins for the AHAB seaplane.
+
+    Command topics:
+      /<namespace>/command/motor_speed   gz.msgs.Actuators, velocity[0]=left,
+                                         velocity[1]=right prop [rad/s]
+                                         (same topic PX4's gz bridge publishes)
+      /<namespace>/cmd/aileron_{left,right}       gz.msgs.Double [rad]
+      /<namespace>/cmd/ruddervator_{left,right}   gz.msgs.Double [rad]
+
+    Positive surface deflection is trailing edge up on all four surfaces
+    (for the ruddervators: up and toward the inside of the V).
+      roll right:  aileron_left < 0, aileron_right > 0
+      pitch up:    both ruddervators > 0
+      yaw right:   ruddervator_left > 0, ruddervator_right < 0
+
+    Prop constants are from the JSBSim TwinTractor 9x5x3 prop (static C_T,
+    C_P) and the 17.3 kRPM full-throttle point, ~29 N per motor. Thrust does
+    not fall off with airspeed in this plugin.
+    Lift/drag coefficients follow the PX4 advanced_plane gz model; areas come
+    from the TwinTractor JSBSim metrics.
+  -->
+
+  <xacro:property name="vtail_sin" value="${sin(vtail_dihedral)}"/>
+  <xacro:property name="vtail_cos" value="${cos(vtail_dihedral)}"/>
+
+  <xacro:macro name="ahab_gz" params="namespace:=ahab00">
+
+    <gazebo>
+      <plugin filename="gz-sim-joint-state-publisher-system"
+              name="gz::sim::systems::JointStatePublisher">
+        <topic>/${namespace}/joint_states</topic>
+      </plugin>
+    </gazebo>
+
+    <!-- Props: thrust + reaction torque, spins the prop joint for visuals -->
+    <xacro:macro name="ahab_gz_motor" params="side number direction">
+      <gazebo>
+        <plugin filename="gz-sim-multicopter-motor-model-system"
+                name="gz::sim::systems::MulticopterMotorModel">
+          <robotNamespace>${namespace}</robotNamespace>
+          <jointName>${namespace}/rotor_${side}_joint</jointName>
+          <linkName>${namespace}/rotor_${side}</linkName>
+          <turningDirection>${direction}</turningDirection>
+          <timeConstantUp>0.0125</timeConstantUp>
+          <timeConstantDown>0.025</timeConstantDown>
+          <maxRotVelocity>1811</maxRotVelocity>
+          <motorConstant>8.9e-06</motorConstant>
+          <momentConstant>0.0173</momentConstant>
+          <commandSubTopic>command/motor_speed</commandSubTopic>
+          <motorNumber>${number}</motorNumber>
+          <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+          <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+          <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+          <motorType>velocity</motorType>
+        </plugin>
+      </gazebo>
+    </xacro:macro>
+
+    <!-- Lifting surface on the frame, with an optional control surface joint -->
+    <xacro:macro name="ahab_gz_liftdrag"
+                 params="cp area upward a0 control_joint rad_to_cl
+                         cla:=4.752798721 cda:=0.6417112299
+                         alpha_stall:=0.3391428111 cla_stall:=-3.85
+                         cda_stall:=-0.9233984055">
+      <gazebo>
+        <plugin filename="gz-sim-lift-drag-system"
+                name="gz::sim::systems::LiftDrag">
+          <a0>${a0}</a0>
+          <cla>${cla}</cla>
+          <cda>${cda}</cda>
+          <cma>0.0</cma>
+          <alpha_stall>${alpha_stall}</alpha_stall>
+          <cla_stall>${cla_stall}</cla_stall>
+          <cda_stall>${cda_stall}</cda_stall>
+          <cma_stall>0.0</cma_stall>
+          <cp>${cp}</cp>
+          <area>${area}</area>
+          <air_density>1.2041</air_density>
+          <forward>1 0 0</forward>
+          <upward>${upward}</upward>
+          <link_name>${namespace}/base_link</link_name>
+          <xacro:if value="${control_joint != ''}">
+            <control_joint_name>${namespace}/${control_joint}</control_joint_name>
+            <control_joint_rad_to_cl>${rad_to_cl}</control_joint_rad_to_cl>
+          </xacro:if>
+        </plugin>
+      </gazebo>
+    </xacro:macro>
+
+    <!--
+      Surfaces: position control. use_velocity_commands avoids instability from
+      force PID on the very small surface inertias.
+    -->
+    <xacro:macro name="ahab_gz_surface" params="name">
+      <gazebo>
+        <plugin filename="gz-sim-joint-position-controller-system"
+                name="gz::sim::systems::JointPositionController">
+          <joint_name>${namespace}/${name}_joint</joint_name>
+          <topic>/${namespace}/cmd/${name}</topic>
+          <use_velocity_commands>true</use_velocity_commands>
+          <p_gain>10</p_gain>
+          <i_gain>0</i_gain>
+          <d_gain>0</d_gain>
+          <cmd_max>8</cmd_max>
+          <cmd_min>-8</cmd_min>
+        </plugin>
+      </gazebo>
+    </xacro:macro>
+
+    <xacro:ahab_gz_motor side="left" number="0" direction="ccw"/>
+    <xacro:ahab_gz_motor side="right" number="1" direction="cw"/>
+
+    <!-- Wing halves: 0.2125 m^2 each, cp at quarter chord, mid semi-span -->
+    <xacro:ahab_gz_liftdrag cp="0.022 0.45 0.143" area="0.2125" upward="0 0 1"
+                            a0="0.05984281113"
+                            control_joint="aileron_left_joint" rad_to_cl="-0.7"/>
+    <xacro:ahab_gz_liftdrag cp="0.022 -0.45 0.143" area="0.2125" upward="0 0 1"
+                            a0="0.05984281113"
+                            control_joint="aileron_right_joint" rad_to_cl="-0.7"/>
+
+    <!-- V-tail panels: normal tilted inward by the dihedral -->
+    <xacro:ahab_gz_liftdrag cp="-0.505 0.15 0.165" area="0.06"
+                            upward="0 ${-vtail_sin} ${vtail_cos}" a0="0.0"
+                            control_joint="ruddervator_left_joint" rad_to_cl="-1.5"/>
+    <xacro:ahab_gz_liftdrag cp="-0.505 -0.15 0.165" area="0.06"
+                            upward="0 ${vtail_sin} ${vtail_cos}" a0="0.0"
+                            control_joint="ruddervator_right_joint" rad_to_cl="-1.5"/>
+
+    <!--
+      Body (hull, booms, interference) parasitic drag. LiftDrag only models
+      drag as cda*alpha, so this element uses no lift and a0=1 rad, giving a
+      near-constant CD0 = 0.07 on the wing reference area, applied at the CG.
+    -->
+    <xacro:ahab_gz_liftdrag cp="0.022 0 0" area="0.425" upward="0 0 1" a0="1.0"
+                            control_joint="" rad_to_cl="0"
+                            cla="0" cda="0.07" alpha_stall="1.5"
+                            cla_stall="0" cda_stall="0"/>
+
+    <xacro:ahab_gz_surface name="aileron_left"/>
+    <xacro:ahab_gz_surface name="aileron_right"/>
+    <xacro:ahab_gz_surface name="ruddervator_left"/>
+    <xacro:ahab_gz_surface name="ruddervator_right"/>
+
+  </xacro:macro>
+</robot>
