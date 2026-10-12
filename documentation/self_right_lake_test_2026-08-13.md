@@ -103,7 +103,7 @@ retries are cheap; switch back to MANUAL first if you *don't* want an immediate 
 |---|---|---|
 | 4 VERIFY_FAIL | a precondition failed for the full 1 s window; nothing moved | `listener sensor_encoder` (valid? zeroed? fresh?) → power-cycle + wing-level reboot re-zeros; check battery warning (fresh pack); check EKF tilt align. |
 | 2 TILT_TIMEOUT | wing didn't reach −90°±tol in `SR_TILT_TMO` | Check stall angle in `wing_tilt status`. Escalate one at a time: `SR_TILT_TOL 0.15` → `TILT_KI 0.7` → `TILT_KP 3.5`. (TMO is already 10 s.) |
-| 3 RIGHTING_TIMEOUT | full thrust for `SR_TIMEOUT` didn't cross over-center | Confirm the wing *held* −90° during thrust (`wing_tilt_status` during state 3). Then `SR_TIMEOUT 8`; if it rocks close to vertical but falls back, `SR_OVERCTR 1.3` (cut earlier ≈ 75°) is available — change deliberately, it's the commit threshold. |
+| 3 RIGHTING_TIMEOUT | full thrust for `SR_TIMEOUT` didn't cross over-center | Confirm the wing *held* −90° during thrust (`wing_tilt_status` during state 3). Then `SR_TIMEOUT 8`; if it rocks close to vertical but falls back, lowering `SR_OVERCTR` (keeps thrust on until a smaller angle from upright, i.e. cuts *later*; 1.4 ≈ 80° completed all five 2026-10-03 trials) is available — change deliberately, it's the commit threshold. |
 | 1 STICK | you (or a drifting TX) crossed the 15% deadzone | Set the TX down / check trims; `SR_STICK_DZ 0.25` if the radio is noisy. |
 
 ### Manual fallback (the demonstrated method, updated for current firmware)
