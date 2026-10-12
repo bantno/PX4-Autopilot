@@ -114,13 +114,18 @@ parameters:
             From the 2026-07-24 pool log: a manual cut at ~90 deg completed cleanly, while an
             attempt that only touched ~107 deg fell back inverted — 1.4 rad (80 deg) commits with
             margin on both sides.
+            2026-10-03 water test: with the stronger props, cutting at 80 deg let the still-spinning
+            props hit the water as the hull slammed upright (mount broke on trial 5), so the cut
+            was moved earlier to 105 deg (1.833 rad). If the vehicle then fails to get over center
+            (falls back inverted after the cut), LOWER this value to keep thrust on longer
+            (1.4 rad was proven to complete in all five 2026-10-03 trials).
         type: float
         unit: rad
         min: 0.2
         max: 2.5
         decimal: 3
         increment: 0.05
-        default: 1.4
+        default: 1.833
 
       SR_TIMEOUT:
         description:

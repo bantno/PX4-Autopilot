@@ -121,7 +121,6 @@ void LoggedTopics::add_default_topics()
 	add_optional_topic("sensor_airflow", 100);
 	add_topic("sensor_combined");
 	add_optional_topic("sensor_correction");
-	add_optional_topic("sensor_encoder", 50);
 	add_optional_topic("sensor_gyro_fft", 50);
 	add_topic("sensor_selection");
 	add_topic("sensors_status_imu", 200);
@@ -133,6 +132,11 @@ void LoggedTopics::add_default_topics()
 	// requires the topic to exist at logger start), so register them unconditionally and let
 	// the logger subscribe once they appear.
 	add_topic("wing_tilt_setpoint", 100);
+	// The as5600 driver advertises sensor_encoder on its first sample, which can land after the
+	// logger starts (or never, if I2C init fails at boot) — the optional entry was silently
+	// skipped. Log every 100 Hz sample: timestamp gaps = I2C read failures, valid=0 with fresh
+	// samples = magnet not detected.
+	add_topic("sensor_encoder");
 	add_topic("autonomy_action", 1000);
 	add_topic("autonomy_action_status", 1000);
 	add_topic("autonomy_observation", 1000);
