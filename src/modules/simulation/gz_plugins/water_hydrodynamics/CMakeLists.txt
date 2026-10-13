@@ -31,13 +31,13 @@
 #
 ############################################################################
 
-# Water drag on the submerged part of a model (see WaterDamping.hpp)
-project(WaterDampingPlugin)
+# Per-panel hull hydrodynamics on a flat water surface (see WaterHydrodynamics.hpp)
+project(WaterHydrodynamicsPlugin)
 
 
 
 add_library(${PROJECT_NAME} SHARED
-    WaterDamping.cpp
+    WaterHydrodynamics.cpp
 )
 
 target_link_libraries(${PROJECT_NAME}
