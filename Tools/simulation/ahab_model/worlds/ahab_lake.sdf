@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AHAB lake: open water for the twin_tractor_seaplane.
+
+    PX4_GZ_WORLD=ahab_lake make px4_sitl gz_twin_tractor_seaplane
+
+  Water surface at z = 0 with graded buoyancy (fresh water below, air above) acting on the model's box
+  collisions; lakebed 10 m down. Home is the 2026-10-03 self-right test site.
+  There is no water drag, added mass or waves: gz-sim's Hydrodynamics system acts in air too, so it is not
+  used. Floating/bobbing and righting statics are represented, taxi/planing dynamics are not.
+
+  A world that declares plugins replaces the server.config defaults, so the PX4 set is repeated here.
+-->
+<sdf version="1.9">
+  <world name="ahab_lake">
+    <physics type="ode">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>250</real_time_update_rate>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-air-pressure-system" name="gz::sim::systems::AirPressure"/>
+    <plugin filename="gz-sim-air-speed-system" name="gz::sim::systems::AirSpeed"/>
+    <plugin filename="gz-sim-apply-link-wrench-system" name="gz::sim::systems::ApplyLinkWrench"/>
+    <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat"/>
+    <plugin filename="gz-sim-magnetometer-system" name="gz::sim::systems::Magnetometer"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="libOpticalFlowSystem.so" name="custom::OpticalFlowSystem"/>
+    <plugin filename="libGstCameraSystem.so" name="custom::GstCameraSystem"/>
+
+    <plugin filename="gz-sim-buoyancy-system" name="gz::sim::systems::Buoyancy">
+      <graded_buoyancy>
+        <default_density>1000</default_density>
+        <density_change>
+          <above_depth>0</above_depth>
+          <density>1.225</density>
+        </density_change>
+      </graded_buoyancy>
+    </plugin>
+
+    <gravity>0 0 -9.8</gravity>
+    <magnetic_field>6e-06 2.3e-05 -4.2e-05</magnetic_field>
+    <atmosphere type="adiabatic"/>
+    <scene>
+      <grid>false</grid>
+      <ambient>0.4 0.4 0.4 1</ambient>
+      <background>0.62 0.75 0.88 1</background>
+      <shadows>true</shadows>
+    </scene>
+
+    <!-- water surface: visual only -->
+    <model name="water_surface">
+      <static>true</static>
+      <link name="link">
+        <visual name="water">
+          <geometry><plane><normal>0 0 1</normal><size>2000 2000</size></plane></geometry>
+          <material>
+            <ambient>0.10 0.25 0.35 1</ambient>
+            <diffuse>0.12 0.32 0.45 0.85</diffuse>
+            <specular>0.6 0.6 0.6 1</specular>
+          </material>
+          <transparency>0.15</transparency>
+        </visual>
+      </link>
+    </model>
+
+    <!-- lakebed -->
+    <model name="lakebed">
+      <static>true</static>
+      <pose>0 0 -10 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>2000 2000</size></plane></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>2000 2000</size></plane></geometry>
+          <material>
+            <ambient>0.30 0.27 0.20 1</ambient>
+            <diffuse>0.35 0.31 0.22 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <light name="sunUTC" type="directional">
+      <pose>0 0 500 0 -0 0</pose>
+      <cast_shadows>true</cast_shadows>
+      <intensity>1</intensity>
+      <direction>0.001 0.625 -0.78</direction>
+      <diffuse>0.904 0.904 0.904 1</diffuse>
+      <specular>0.271 0.271 0.271 1</specular>
+      <attenuation>
+        <range>2000</range>
+        <linear>0</linear>
+        <constant>1</constant>
+        <quadratic>0</quadratic>
+      </attenuation>
+    </light>
+
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>34.0563</latitude_deg>
+      <longitude_deg>-84.6904</longitude_deg>
+      <elevation>0</elevation>
+    </spherical_coordinates>
+  </world>
+</sdf>

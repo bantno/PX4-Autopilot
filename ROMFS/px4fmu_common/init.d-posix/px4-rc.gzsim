@@ -45,9 +45,16 @@ if [ -z "${PX4_GZ_STANDALONE}" ]; then
 			. ../gz_env.sh
 		fi
 
-		echo "INFO  [init] Starting gazebo with world: ${PX4_GZ_WORLDS}/${PX4_GZ_WORLD}.sdf"
+		# Worlds live in the upstream submodule; fall back to the in-repo extra worlds directory
+		world_sdf="${PX4_GZ_WORLDS}/${PX4_GZ_WORLD}.sdf"
 
-		${gz_command} ${gz_sub_command} --verbose=${GZ_VERBOSE:=1} -r -s "${PX4_GZ_WORLDS}/${PX4_GZ_WORLD}.sdf" &
+		if [ ! -f "${world_sdf}" ] && [ -n "${PX4_GZ_WORLDS_EXTRA}" ] && [ -f "${PX4_GZ_WORLDS_EXTRA}/${PX4_GZ_WORLD}.sdf" ]; then
+			world_sdf="${PX4_GZ_WORLDS_EXTRA}/${PX4_GZ_WORLD}.sdf"
+		fi
+
+		echo "INFO  [init] Starting gazebo with world: ${world_sdf}"
+
+		${gz_command} ${gz_sub_command} --verbose=${GZ_VERBOSE:=1} -r -s "${world_sdf}" &
 
 		if [ -z "${HEADLESS}" ]; then
 			echo "INFO  [init] Starting gz gui"
