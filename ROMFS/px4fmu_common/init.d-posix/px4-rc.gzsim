@@ -133,8 +133,15 @@ if [ -n "${PX4_SIM_MODEL#*gz_}" ] && [ -z "${PX4_GZ_MODEL_NAME}" ]; then
 
 	echo "INFO  [init] Spawning Gazebo model"
 
+	# Models live in the upstream submodule; fall back to the in-repo extra models directory
+	model_sdf="${PX4_GZ_MODELS}/${MODEL_NAME}/model.sdf"
+
+	if [ ! -f "${model_sdf}" ] && [ -n "${PX4_GZ_MODELS_EXTRA}" ] && [ -f "${PX4_GZ_MODELS_EXTRA}/${MODEL_NAME}/model.sdf" ]; then
+		model_sdf="${PX4_GZ_MODELS_EXTRA}/${MODEL_NAME}/model.sdf"
+	fi
+
 	# include the actual SDF in this one, containing the pose if given
-	sdf_str="<sdf version=\"1.6\"> <include> <uri>file://${PX4_GZ_MODELS}/${MODEL_NAME}/model.sdf</uri> ${sdf_pose_str} </include> </sdf>"
+	sdf_str="<sdf version=\"1.6\"> <include> <uri>file://${model_sdf}</uri> ${sdf_pose_str} </include> </sdf>"
 
 	# Spawn model
 	${gz_command} service -s "/world/${PX4_GZ_WORLD}/create" --reqtype gz.msgs.EntityFactory \
