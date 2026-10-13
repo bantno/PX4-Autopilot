@@ -18,7 +18,9 @@ PX4 finds this model through `PX4_GZ_MODELS_EXTRA` (`src/modules/simulation/gz_b
 | `rate_derivatives.yaml` | Rate derivatives identified from flight logs (`documentation/ahab_rate_derivative_identification.md`) |
 | `tools/mass_properties.py` | Pendulum data → link inertials (`--selftest` for a known-answer check) |
 | `tools/stab_to_gz.py` | VSPAERO `.stab` → AdvancedLiftDrag coefficients |
-| `tools/build_model.py` | Writes `model.sdf` |
+| `tools/build_model.py` | Writes `model.sdf` and `hydro_panels.txt` (`AHAB_HYDRO` / `AHAB_TILT_EFFORT` env overrides for sweeps) |
+| `tools/float_to_model.py`, `tools/fin_to_model.py` | Wingtip floats / ventral fin from their STEP files |
+| `tools/water_scenarios.py` | Water calibration scenarios (headless or `--gui`) |
 | `tools/step_to_glb.py`, `tools/step_bodies.py` | STEP → `hull.glb` / `wing.glb` (needs `cadquery-ocp` in a venv; usage in the docstring) |
 
 ## Model
@@ -52,6 +54,51 @@ base_link   hull + V-tail + tilt drive + battery + avionics; IMU/baro/mag/GPS; A
 - **Propulsion**: the JSBSim Cine66 925KV + 9x5x3 operating point: 29.2 N at 1811 rad/s per motor, torque/thrust
   0.0173.
 
+## Water (`PX4_GZ_WORLD=ahab_lake`)
+
+```bash
+PX4_GZ_WORLD=ahab_lake make px4_sitl gz_twin_tractor_seaplane
+python3 Tools/simulation/ahab_model/tools/water_scenarios.py [float drop taxi autotakeoff selfright mission] [--gui]
+```
+
+- **Buoyancy**: gz-sim graded `Buoyancy` on the box collisions. The boxes are volume-exact, from the STEP: the
+  fuselage uses its sealed outer envelope (the CAD part is an open thin shell), and the wing panels, floats and fin
+  use their solid volume.
+- **Hydrodynamics**: `src/modules/simulation/gz_plugins/water_hydrodynamics`, a per-panel model after Kerner,
+  "Water interaction model for boats in video games" (Just Cause 3, 2015). It has the same force set and parameter
+  names as Mainwaring's `asv_wave_sim` HydrodynamicsPlugin:
+  - pressure drag along each panel normal, and suction on lee-side panels
+  - ITTC-57 viscous drag
+  - small damping scaled by the submerged area
+  - Planing lift comes from the pressure term. With `fPDrag` = 1 it is close to Savitsky's (1964) C_L ~ τ^1.1 at
+    planing speed.
+- **Why per-panel**: the lumped Fossen model (VRX, gz-sim `Hydrodynamics`) has no planing lift and acts in air too.
+  Zarnick 1978 / Savitsky are more accurate but assume prismatic hulls and cost much more.
+- **Panels** (`twin_tractor_seaplane/hydro_panels.txt`, about 5.6k): the real hull surface from the STEP, with true
+  normals. Box faces cannot work: they give a staircase bow with no lift.
+- **Numerics, built into the plugin**:
+  - submerged fraction over each panel's height, which stops forces switching on and off at the waterline
+  - drag limited to what stops a link's motion in one step, which stops the jitter of the light wing link
+  - a per-link force/torque cap for violent impacts
+- **Coefficients** (`HYDRO` in `tools/build_model.py`):
+  - cPDrag 100/100, fPDrag 1
+  - cSDrag 20/20: suction a fifth of pressure, otherwise the planing drag stalls the takeoff run at 9 m/s
+  - cDampR1 20: pitch damping against porpoising
+- **Floats**: 3° nose-up incidence. **Ventral fin** (keel rudder): 50 mm behind the step, as on the aircraft. At
+  planing speed the wetted forebody puts the water side force ahead of the CG, so the hull water-loops, as the real
+  one did. The fin plus ≥ 6° trim makes it directionally stable, so airframe 4242 holds `RWTO_PSP 8` on the water
+  run.
+
+Results (`water_scenarios.py`, placeholder mass properties):
+
+| Scenario | Result |
+|---|---|
+| float | trim +5.8°, level roll (with floats) |
+| drop 0.5 m | settles within 5 mm in 2.5 s (5 bobs) |
+| taxi 15 / 30 / 50 / 80 / 100 % | 0.7 / 1.8 / 3.6 / 7.4 / 8.9 m/s, nose-up trim, stable |
+| PX4 auto takeoff from the water | off in 4.1 s / 42 m at 22 m/s, heading held within 5°, climbs to 100 m |
+| self-right (`SR_OVERCTR` 1.4) | flips and settles level; slower than 2026-10-03 (gap 7) |
+
 ## Known gaps (also flagged in the generated SDF header)
 
 1. **Mass properties** are placeholders until `mass_properties.yaml` is filled from the measurement session. The
@@ -66,4 +113,11 @@ base_link   hull + V-tail + tilt drive + battery + avionics; IMU/baro/mag/GPS; A
 5. **Prop thrust doesn't drop with airspeed** (`MulticopterMotorModel`), unlike JSBSim's advance-ratio prop.
    The mesh shows the 10x9x3 that is actually flown, while the constants are the JSBSim 9x5x3.
 6. **Stall**: VSPAERO has none. `alpha_stall` is a 15° placeholder.
-7. **No water or buoyancy.** Self-right can be exercised for sequencing and signs only.
+7. **Water flip dynamics wait on mass properties.** In the water, self-right reaches over-center at 1.7 s, against
+   1.2–1.4 s on 2026-10-03. Flip onset and timing are set by the placeholder CG height and inertia, so re-check them
+   with `water_scenarios.py selfright` after the measurement session. Lower rotational water damping (`cDampR1` 2)
+   matches the real peak pitch rate (8.2 vs 6.8–9.3 rad/s), but it brings back porpoising at 100 % taxi. Taxi and
+   takeoff were kept working, so `cDampR1` stays at 20.
+8. **The tilt drive is an ideal speed source with a 10 N·m torque limit.** It rotates the wing in water in 1.4 s,
+   against about 3.3 s on 2026-10-03. Put the measured stall torque in `tilt_drive.stall_torque_Nm`.
+9. **Water**: flat, with no waves, spray or added mass.

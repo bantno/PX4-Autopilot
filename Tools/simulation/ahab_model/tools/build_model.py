@@ -119,6 +119,9 @@ def sensors():
 
 
 def build():
+    # calibration sweeps: AHAB_HYDRO='{"cPDrag1": 30}' overrides HYDRO entries, AHAB_TILT_EFFORT the tilt torque limit
+    HYDRO.update(json.loads(os.environ.get('AHAB_HYDRO', '{}')))
+
     with open(mass_properties.DEFAULT_YAML) as fp:
         mp_doc = yaml.safe_load(fp)
 
@@ -185,7 +188,7 @@ def build():
         out.append(box(('wing_%d' % i, (p[0] - pivot[0], p[1] - pivot[1], p[2] - pivot[2], 0, 0, 0)), b['size']))
     out.append('    </link>\n')
 
-    effort = tilt.get('stall_torque_Nm') or 10.0
+    effort = float(os.environ.get('AHAB_TILT_EFFORT', 0)) or tilt.get('stall_torque_Nm') or 10.0
     out.append(revolute('wing_tilt_joint', 'base_link', 'wing_link', (0, -1, 0), -math.pi, math.pi,
                         effort=effort, damping=0.01))
 
