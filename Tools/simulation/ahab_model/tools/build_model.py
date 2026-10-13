@@ -9,6 +9,7 @@ Inputs (nothing in model.sdf is hand-edited; change these and re-run):
   by tools/step_to_glb.py
 - mass properties: mass_properties.yaml via tools/mass_properties.py (measured; placeholder until then)
 - aero: AHAB_combined_betasym.stab via tools/stab_to_gz.py, rate derivatives from rate_derivatives.yaml
+- collision/buoyancy boxes: collision_boxes.json via tools/step_to_collision.py
 - propulsion: JSBSim Cine66 925KV + 9x5x3 (Engines/9x5x3.xml): C_T 0.105, C_P 0.050, D 0.2286 m,
   17.3 kRPM full throttle -> 29.2 N, motorConstant 8.9e-6, momentConstant 0.0173
 
@@ -17,6 +18,7 @@ edge up. The tilt joint is + = wing leading edge up (axis -y), so SR_TILT_SP = -
 toward the hull's belly, i.e. up while inverted, matching the hardware.
 """
 
+import json
 import math
 import os
 import sys
@@ -117,6 +119,9 @@ def build():
     wing = mp['wing_link']
     tilt = mp['tilt_drive'] or {}
 
+    with open(os.path.join(HERE, '..', 'collision_boxes.json')) as fp:
+        cboxes = json.load(fp)
+
     notes = []
 
     if not all(mp['measured'].values()):
@@ -142,8 +147,10 @@ def build():
     out.append('    <link name="base_link">\n')
     out.append(inertial(hull['mass'], hull['cg'] + [0, 0, 0], hull['I']))
     out.append(hull_vis)
-    out.append(box(('hull_collision', (0.015, 0, -0.035, 0, 0, 0)), (0.93, 0.16, 0.21)))
-    out.append(box(('tail_boom_collision', (-0.35, 0, 0, 0, 0, 0)), (0.3, 0.1, 0.13)))
+    # Volume-preserving boxes from the STEP (tools/step_to_collision.py): they set buoyancy on water and
+    # ground contact, so the hull's outer envelope and the panel volumes are what matter here.
+    for i, b in enumerate(cboxes['hull']):
+        out.append(box(('hull_%d' % i, tuple(b['pos']) + (0, 0, 0)), b['size']))
     out.append(sensors())
     out.append('    </link>\n')
 
@@ -153,10 +160,14 @@ def build():
 
     out.append(visual('wing_visual', 'wing.glb', (-pivot[0], -pivot[1], -pivot[2], 0, 0, 0)))
 
-    # outer wing panels only (|y| 0.110..0.910 m); the centre section is hull
-    for side, s in (('left', 1), ('right', -1)):
-        out.append(box(('wing_%s_collision' % side, (-0.0394 - pivot[0], s * 0.5103, 0.1434 - pivot[2], 0, 0, 0)),
-                       (0.2531, 0.800, 0.040)))
+    # wingtip floats hang from the wing (tools/float_to_model.py); their buoyancy boxes are in cboxes['wing']
+    if os.path.exists(os.path.join(MODEL_DIR, 'meshes', 'floats.glb')):
+        out.append(visual('floats_visual', 'floats.glb', (-pivot[0], -pivot[1], -pivot[2], 0, 0, 0)))
+
+    # outer wing panels only (|y| 0.110..0.910 m; the centre section is hull) and the wingtip floats
+    for i, b in enumerate(cboxes['wing']):
+        p = b['pos']
+        out.append(box(('wing_%d' % i, (p[0] - pivot[0], p[1] - pivot[1], p[2] - pivot[2], 0, 0, 0)), b['size']))
     out.append('    </link>\n')
 
     effort = tilt.get('stall_torque_Nm') or 10.0
@@ -211,6 +222,14 @@ def build():
       <joint_name>wing_tilt_joint</joint_name>
       <sub_topic>servo_4</sub_topic>
       <initial_velocity>0</initial_velocity>
+    </plugin>
+    <!-- water drag on the submerged boxes only (PX4 gz plugin, src/modules/simulation/gz_plugins/water_damping);
+         nothing is applied out of the water. Per m^3 submerged, link-frame x y z. -->
+    <plugin filename="libWaterDampingPlugin.so" name="water_damping::WaterDamping">
+      <water_level>0</water_level>
+      <linear>200 2000 10000</linear>
+      <quadratic>300 3000 15000</quadratic>
+      <angular>120</angular>
     </plugin>
     <!-- wing angle feedback -> gz_bridge -> sensor_encoder (SIM_GZ_EN_TILT) -->
     <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
