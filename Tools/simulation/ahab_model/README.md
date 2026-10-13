@@ -15,13 +15,31 @@ PX4 finds this model through `PX4_GZ_MODELS_EXTRA` (`src/modules/simulation/gz_b
 | `twin_tractor_seaplane/model.sdf` | **Generated** by `tools/build_model.py`. Don't edit it; change the inputs and re-run. |
 | `twin_tractor_seaplane/meshes/` | `hull.glb` / `wing.glb` meshed from the multibody STEP (`AHAB_FINAL_simv2.stp`, 2026-10-13) by `tools/step_to_glb.py`; aileron, ruddervator and prop meshes by Nick Trujillo (`ac86632ced` on `gazebo_sim`) |
 | `mass_properties.yaml` | Measured mass/CG/inertia (procedure: `documentation/ahab_mass_properties_procedure.md`) |
-| `rate_derivatives.yaml` | Rate derivatives identified from flight logs (`documentation/ahab_rate_derivative_identification.md`) |
+| `rate_derivatives.yaml` | *(not yet created)* Rate derivatives to be identified from the flight logs; until then `stab_to_gz.py` uses flagged VSPAERO fallbacks |
+| `collision_boxes.json` | Buoyancy/contact boxes and hydro surface panels, written by the STEP tools below |
 | `tools/mass_properties.py` | Pendulum data → link inertials (`--selftest` for a known-answer check) |
 | `tools/stab_to_gz.py` | VSPAERO `.stab` → AdvancedLiftDrag coefficients |
 | `tools/build_model.py` | Writes `model.sdf` and `hydro_panels.txt` (`AHAB_HYDRO` / `AHAB_TILT_EFFORT` env overrides for sweeps) |
 | `tools/float_to_model.py`, `tools/fin_to_model.py` | Wingtip floats / ventral fin from their STEP files |
 | `tools/water_scenarios.py` | Water calibration scenarios (headless or `--gui`) |
 | `tools/step_to_glb.py`, `tools/step_bodies.py` | STEP → `hull.glb` / `wing.glb` (needs `cadquery-ocp` in a venv; usage in the docstring) |
+| `tools/step_to_collision.py` | STEP → volume-exact boxes (fuselage outer envelope, solid wing/V-tail) + hull/wing surface panels |
+| `worlds/ahab_lake.sdf` | Lake world: graded buoyancy, lakebed at −10 m, home at the 2026-10-03 test site |
+
+### Source CAD and regeneration
+
+The CAD files are not in the repo: `AHAB_FINAL_simv2.stp` (multibody aircraft), `Float_Mount_Assm.stp` (one wingtip
+float with struts) and `ventral fin.stp` (keel rudder), all Inventor exports from 2026-10-13. To regenerate after a
+CAD change, run in this order, with `~/occ_venv` holding `cadquery-ocp numpy`:
+
+```bash
+cd Tools/simulation/ahab_model/tools
+~/occ_venv/bin/python step_to_glb.py       AHAB_FINAL_simv2.stp    . ../twin_tractor_seaplane/meshes
+~/occ_venv/bin/python step_to_collision.py AHAB_FINAL_simv2.stp    . ../collision_boxes.json   # ~4 min
+~/occ_venv/bin/python float_to_model.py    Float_Mount_Assm.stp    . ../twin_tractor_seaplane/meshes ../collision_boxes.json
+~/occ_venv/bin/python fin_to_model.py      "ventral fin.stp"       . ../twin_tractor_seaplane/meshes ../collision_boxes.json
+python3 build_model.py
+```
 
 ## Model
 
@@ -121,3 +139,17 @@ Results (`water_scenarios.py`, placeholder mass properties):
 8. **The tilt drive is an ideal speed source with a 10 N·m torque limit.** It rotates the wing in water in 1.4 s,
    against about 3.3 s on 2026-10-03. Put the measured stall torque in `tilt_drive.stall_torque_Nm`.
 9. **Water**: flat, with no waves, spray or added mass.
+10. **Landing on the water is untested.** A first try with PX4 `commander land` (no mission) took about 3.5 min
+    to descend, the simulated battery reached warning, and flight termination activated before touchdown. Look at
+    the FW land-mode approach and the battery and failsafe settings before using it in the MDP stack.
+
+## Next steps
+
+1. **Mass-properties session**: fill `mass_properties.yaml` (procedure in
+   `documentation/ahab_mass_properties_procedure.md`, including surface throws and tilt stall torque), then run
+   `tools/build_model.py` and re-check `water_scenarios.py selfright` against 2026-10-03.
+2. **Rate derivatives from the flight logs** (needs step 1's inertia). Write `rate_derivatives.yaml` and document
+   the method.
+3. **Tilt drive**: set the measured stall torque, so the wing rotates in water in about 3.3 s as logged.
+4. **Water landing** (gap 10). Then use `water_scenarios.py mission` (takeoff → land → flip → self-right) as the
+   end-to-end check for the MDP stack.
