@@ -126,6 +126,12 @@ int GZBridge::init()
 		}
 	}
 
+	if (_sim_gz_en_tilt.get()) {
+		if (!subscribeWingTiltEncoder(false)) {
+			return PX4_ERROR;
+		}
+	}
+
 	if (_sim_gz_en_lidar.get()) {
 		if (!subscribeLaserScan(false)) {
 			return PX4_ERROR;
@@ -289,6 +295,21 @@ bool GZBridge::subscribeAirspeed(bool required)
 	return true;
 }
 
+bool GZBridge::subscribeWingTiltEncoder(bool required)
+{
+	// TILT_GEAR belongs to wing_tilt; without it the encoder reads the wing angle directly
+	_param_tilt_gear = param_find("TILT_GEAR");
+
+	std::string joint_state_topic = "/world/" + _world_name + "/model/" + _model_name + "/joint_state";
+
+	if (!_node.Subscribe(joint_state_topic, &GZBridge::wingTiltJointCallback, this)) {
+		PX4_ERR("failed to subscribe to %s", joint_state_topic.c_str());
+		return required ? false : true;
+	}
+
+	return true;
+}
+
 bool GZBridge::subscribeAirPressure(bool required)
 {
 	std::string air_pressure_topic = "/world/" + _world_name + "/model/" + _model_name +
@@ -444,6 +465,52 @@ void GZBridge::airspeedCallback(const gz::msgs::AirSpeed &msg)
 	_differential_pressure_pub.publish(report);
 
 	this->_temperature = report.temperature;
+}
+
+void GZBridge::wingTiltJointCallback(const gz::msgs::Model &msg)
+{
+	const uint64_t timestamp = hrt_absolute_time();
+
+	// The joint state arrives every physics step; publish at the real AS5600 driver rate (100 Hz)
+	if (timestamp - _encoder_last_publish < 10_ms) {
+		return;
+	}
+
+	for (int i = 0; i < msg.joint_size(); i++) {
+		const gz::msgs::Joint &joint = msg.joint(i);
+
+		if (joint.name() != "wing_tilt_joint" || !joint.has_axis1()) {
+			continue;
+		}
+
+		float gear = 1.f;
+
+		if (_param_tilt_gear != PARAM_INVALID) {
+			param_get(_param_tilt_gear, &gear);
+		}
+
+		device::Device::DeviceId id{};
+		id.devid_s.bus_type = device::Device::DeviceBusType::DeviceBusType_SIMULATION;
+		id.devid_s.devtype = DRV_ENC_DEVTYPE_AS5600;
+		id.devid_s.bus = 1;
+		id.devid_s.address = 0x36;
+
+		// Encoder shaft angle: continuous multi-turn, zero at spawn (wing level), like the as5600 driver
+		const float angle = static_cast<float>(joint.axis1().position()) * gear;
+		const float wrapped = matrix::wrap_pi(angle);
+
+		sensor_encoder_s report{};
+		report.timestamp = timestamp;
+		report.device_id = id.devid;
+		report.angle = angle;
+		report.raw_count = static_cast<uint16_t>((wrapped + M_PI_F) / (2.f * M_PI_F) * 4096.f) & 0x0FFF;
+		report.valid = true;
+		report.zeroed = true;
+		_sensor_encoder_pub.publish(report);
+
+		_encoder_last_publish = timestamp;
+		return;
+	}
 }
 
 void GZBridge::imuCallback(const gz::msgs::IMU &msg)

@@ -59,6 +59,7 @@
 #include <uORB/topics/sensor_baro.h>
 #include <uORB/topics/sensor_mag.h>
 #include <uORB/topics/sensor_optical_flow.h>
+#include <uORB/topics/sensor_encoder.h>
 #include <uORB/topics/obstacle_distance.h>
 #include <uORB/topics/wheel_encoders.h>
 #include <uORB/topics/vehicle_angular_velocity.h>
@@ -119,6 +120,7 @@ private:
 	bool subscribeAirPressure(bool required);
 	bool subscribeNavsat(bool required);
 	bool subscribeOpticalFlow(bool required);
+	bool subscribeWingTiltEncoder(bool required);
 
 	void clockCallback(const gz::msgs::Clock &msg);
 	void airspeedCallback(const gz::msgs::AirSpeed &msg);
@@ -131,6 +133,7 @@ private:
 	void laserScanCallback(const gz::msgs::LaserScan &msg);
 	void opticalFlowCallback(const px4::msgs::OpticalFlow &msg);
 	void magnetometerCallback(const gz::msgs::Magnetometer &msg);
+	void wingTiltJointCallback(const gz::msgs::Model &msg);
 
 	static void rotateQuaternion(gz::math::Quaterniond &q_FRD_to_NED, const gz::math::Quaterniond q_FLU_to_ENU);
 
@@ -155,6 +158,10 @@ private:
 	uORB::PublicationMulti<sensor_mag_s>          _sensor_mag_pub{ORB_ID(sensor_mag)};
 	uORB::PublicationMulti<vehicle_odometry_s>    _visual_odometry_pub{ORB_ID(vehicle_visual_odometry)};
 	uORB::PublicationMulti<sensor_optical_flow_s> _optical_flow_pub{ORB_ID(sensor_optical_flow)};
+	uORB::Publication<sensor_encoder_s>           _sensor_encoder_pub{ORB_ID(sensor_encoder)};
+
+	param_t _param_tilt_gear{PARAM_INVALID};
+	hrt_abstime _encoder_last_publish{0};
 
 
 	GZMixingInterfaceESC   _mixing_interface_esc{_node};
@@ -200,6 +207,7 @@ private:
 		(ParamInt<px4::params::SIM_GZ_EN_ASPD>) _sim_gz_en_aspd,
 		(ParamInt<px4::params::SIM_GZ_EN_BARO>) _sim_gz_en_baro,
 		(ParamInt<px4::params::SIM_GZ_EN_ODOM>) _sim_gz_en_odom,
-		(ParamInt<px4::params::SIM_GZ_EN_GPS>) _sim_gz_en_gps
+		(ParamInt<px4::params::SIM_GZ_EN_GPS>) _sim_gz_en_gps,
+		(ParamInt<px4::params::SIM_GZ_EN_TILT>) _sim_gz_en_tilt
 	)
 };

@@ -105,3 +105,18 @@ PARAM_DEFINE_INT32(SIM_GZ_EN_ODOM, 1);
  * @value 1 Enabled
  */
 PARAM_DEFINE_INT32(SIM_GZ_EN_GPS, 1);
+
+/**
+ * Enable wing-tilt encoder in Gazebo bridge
+ *
+ * Publishes sensor_encoder from the model's wing_tilt_joint (JointStatePublisher), standing in for the
+ * AS5600 on the tilting-wing twin tractor. The angle is the joint angle times TILT_GEAR (encoder shaft
+ * turns per wing turn), zero at spawn like the real boot-time level reference.
+ *
+ * @boolean
+ * @reboot_required true
+ * @group Simulation
+ * @value 0 Disabled
+ * @value 1 Enabled
+ */
+PARAM_DEFINE_INT32(SIM_GZ_EN_TILT, 0);
