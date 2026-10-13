@@ -1,0 +1,53 @@
+# AHAB measured mass properties — fill in per documentation/ahab_mass_properties_procedure.md
+# Units: m, kg, s. Datum: x aft of nose tip, y right, z up from the lowest point of the hull keel (aircraft level).
+# Leave a value null until it is measured; tools/mass_properties.py then falls back to the PLACEHOLDER block below
+# and says so loudly.
+
+g: 9.80665
+
+aircraft:                    # whole aircraft, flight configuration, wing level
+  mass: null
+  cg: {x: null, y: 0.0, z: null}
+  pendulum:                  # bifilar; times = duration of `swings` full oscillations, one entry per trial
+    yaw:   {L: null, d: null, swings: 20, times: [], axis_offset: 0.0, cradle: null}
+    roll:  {L: null, d: null, swings: 20, times: [], axis_offset: 0.0, cradle: null}
+    pitch: {L: null, d: null, swings: 20, times: [], axis_offset: 0.0, cradle: null}
+    # cradle example: {mass: 0.35, swings: 20, times: [31.2, 31.0, 31.3]}  (same L and d as the test)
+
+wing:                        # wing assembly alone (comes off with the wing); CG given as installed, at level
+  mass: null
+  cg: {x: null, y: 0.0, z: null}
+  pendulum:
+    yaw:   {L: null, d: null, swings: 20, times: [], axis_offset: 0.0, cradle: null}
+    roll:  {L: null, d: null, swings: 20, times: [], axis_offset: 0.0, cradle: null}
+    pitch: {L: null, d: null, swings: 20, times: [], axis_offset: 0.0, cradle: null}
+
+tilt_pivot: {x: null, z: null}   # tilt shaft centre (axis parallel to y)
+
+parts:                       # child links in the Gazebo model; null -> estimate below is used
+  aileron: null
+  ruddervator: null
+  prop: null
+
+surface_throws_deg:          # deflection at PWM min / max, positive = trailing edge UP
+  aileron_left:      {min: null, max: null}
+  aileron_right:     {min: null, max: null}
+  ruddervator_left:  {min: null, max: null}
+  ruddervator_right: {min: null, max: null}
+
+tilt_drive:
+  rate_deg_s: 65.0           # bench: 60-70 deg/s at full command (2026-08-13)
+  stall_torque_Nm: null
+
+# ---------------------------------------------------------------------------------------------------------------
+# PLACEHOLDER — NOT MEASURED. Used only while the fields above are null, so the sim can run before the
+# measurement session. Sources: AUW 5.0 kg (2026-10-07 flights); CG x 0.445 m (canonical, JSBSim/VSPAERO).
+# Inertia: Roskam radius-of-gyration estimates (Rx 0.25, Ry 0.38, Rz 0.39) for b = 1.82 m, L = 1.13 m, 5 kg.
+# JSBSim's 0.1012/0.0521/0.073 is NOT used: a 1.2 kg wing of 1.82 m span alone has Ixx ~0.2, so the JSBSim
+# values cannot contain it. Wing: 0.7 kg structure as a plate + motors/ESCs near the pivot. CG z, wing share and
+# pivot are guesses from Nick's mesh geometry.
+placeholder:
+  aircraft: {mass: 5.0, cg: {x: 0.445, y: 0.0, z: 0.16}, I: {xx: 0.26, yy: 0.23, zz: 0.41}}
+  wing:     {mass: 1.2, cg: {x: 0.47, y: 0.0, z: 0.285}, I: {xx: 0.21, yy: 0.007, zz: 0.215}}
+  tilt_pivot: {x: 0.47, z: 0.285}
+  parts: {aileron: 0.020, ruddervator: 0.015, prop: 0.025}
