@@ -13,12 +13,13 @@ PX4 finds this model through `PX4_GZ_MODELS_EXTRA` (`src/modules/simulation/gz_b
 | Path | What |
 |---|---|
 | `twin_tractor_seaplane/model.sdf` | **Generated** by `tools/build_model.py`. Don't edit it; change the inputs and re-run. |
-| `twin_tractor_seaplane/meshes/` | Nick Trujillo's GLB meshes (from `ac86632ced` on `gazebo_sim`) |
+| `twin_tractor_seaplane/meshes/` | `hull.glb` / `wing.glb` meshed from the multibody STEP (`AHAB_FINAL_simv2.stp`, 2026-10-13) by `tools/step_to_glb.py`; aileron, ruddervator and prop meshes by Nick Trujillo (`ac86632ced` on `gazebo_sim`) |
 | `mass_properties.yaml` | Measured mass/CG/inertia (procedure: `documentation/ahab_mass_properties_procedure.md`) |
 | `rate_derivatives.yaml` | Rate derivatives identified from flight logs (`documentation/ahab_rate_derivative_identification.md`) |
 | `tools/mass_properties.py` | Pendulum data → link inertials (`--selftest` for a known-answer check) |
 | `tools/stab_to_gz.py` | VSPAERO `.stab` → AdvancedLiftDrag coefficients |
 | `tools/build_model.py` | Writes `model.sdf` |
+| `tools/step_to_glb.py`, `tools/step_bodies.py` | STEP → `hull.glb` / `wing.glb` (needs `cadquery-ocp` in a venv; usage in the docstring) |
 
 ## Model
 
@@ -26,7 +27,7 @@ PX4 finds this model through `PX4_GZ_MODELS_EXTRA` (`src/modules/simulation/gz_b
 base_link   hull + V-tail + tilt drive + battery + avionics; IMU/baro/mag/GPS; AdvancedLiftDrag
 ├─ servo_2 / servo_3       ruddervators L/R
 └─ wing_tilt_joint         axis -y at the tilt pivot, +-pi (wiring seam), + = leading edge up
-   └─ wing_link            wing + nacelles + motors
+   └─ wing_link            outer wing panels + nacelles + motors (centre section stays on the hull)
       ├─ servo_0 / servo_1 ailerons L/R
       └─ rotor_0 / rotor_1 props L/R (motor 1 / motor 2), thrust along the wing
 ```
@@ -55,9 +56,8 @@ base_link   hull + V-tail + tilt drive + battery + avionics; IMU/baro/mag/GPS; A
 
 1. **Mass properties** are placeholders until `mass_properties.yaml` is filled from the measurement session. The
    JSBSim inertia (0.101/0.052/0.073 kg·m²) is not used: it is too small to contain the wing.
-2. **The wing visual doesn't tilt** until Nick exports `ahab_main.glb` split into `meshes/hull.glb` (hull + V-tail)
-   and `meshes/wing.glb` (wing + nacelles), in the same frame and units. `build_model.py` picks them up
-   automatically. Props, ailerons and the wing collision box already tilt.
+2. **Tilt pivot** is taken from the 16.2 mm spanwise bore in the STEP's fuselage centre section (model x 0.000,
+   z 0.1427 m). Confirm it with the tape measurement (`tilt_pivot` in `mass_properties.yaml`).
 3. **Drag**: VSPAERO drag is about 4–5× too low compared with flight. The model gives L/D ≈ 27 near cruise, but
    the measured best on 2026-10-07 was 5.3. It's kept as-is to match JSBSim. This is the first thing for the
    incoming aero model to fix.

@@ -5,7 +5,8 @@
 
 Inputs (nothing in model.sdf is hand-edited; change these and re-run):
 - geometry: Nick Trujillo's mesh-measured hinge/motor positions (constants below, from ahab_base.xacro,
-  commit ca3852a831) and the meshes in twin_tractor_seaplane/meshes/
+  commit ca3852a831), his surface/prop meshes, and hull.glb / wing.glb meshed from the multibody STEP
+  by tools/step_to_glb.py
 - mass properties: mass_properties.yaml via tools/mass_properties.py (measured; placeholder until then)
 - aero: AHAB_combined_betasym.stab via tools/stab_to_gz.py, rate derivatives from rate_derivatives.yaml
 - propulsion: JSBSim Cine66 925KV + 9x5x3 (Engines/9x5x3.xml): C_T 0.105, C_P 0.050, D 0.2286 m,
@@ -115,8 +116,6 @@ def build():
     hull = mp['hull_link']
     wing = mp['wing_link']
     tilt = mp['tilt_drive'] or {}
-    split_mesh = os.path.exists(os.path.join(MODEL_DIR, 'meshes', 'hull.glb'))
-    rx = 1.5708  # glTF Y-up -> Z-up, as Nick's hull visual
 
     notes = []
 
@@ -125,9 +124,6 @@ def build():
 
     if any('FALLBACK' in s for s in aero['rate_source'].values()):
         notes.append('rate derivatives include VSPAERO fallbacks (rate_derivatives.yaml incomplete)')
-
-    if not split_mesh:
-        notes.append('hull and wing share ahab_main.glb until the split export arrives: the wing visual does not tilt')
 
     out = []
     out.append('''<?xml version="1.0" ?>
@@ -141,7 +137,8 @@ def build():
 ''' % (''.join('  NOTE: %s\n' % n for n in notes), f(MODEL_Z)))
 
     # --- hull (base_link): hull, V-tail, tilt drive, battery, avionics, sensors
-    hull_vis = visual('hull_visual', 'hull.glb' if split_mesh else 'ahab_main.glb', (0, 0, 0, rx, 0, 0))
+    # hull.glb / wing.glb are written in the model frame by tools/step_to_glb.py (no rotation needed)
+    hull_vis = visual('hull_visual', 'hull.glb', (0, 0, 0, 0, 0, 0))
     out.append('    <link name="base_link">\n')
     out.append(inertial(hull['mass'], hull['cg'] + [0, 0, 0], hull['I']))
     out.append(hull_vis)
@@ -154,10 +151,12 @@ def build():
     out.append('    <link name="wing_link">\n      <pose>%s 0 0 0</pose>\n' % ' '.join(f(v) for v in pivot))
     out.append(inertial(wing['mass'], wing['cg'] + [0, 0, 0], wing['I']))
 
-    if split_mesh:
-        out.append(visual('wing_visual', 'wing.glb', (-pivot[0], -pivot[1], -pivot[2], rx, 0, 0)))
+    out.append(visual('wing_visual', 'wing.glb', (-pivot[0], -pivot[1], -pivot[2], 0, 0, 0)))
 
-    out.append(box(('wing_collision', (-0.0395 - pivot[0], 0, 0.143 - pivot[2], 0, 0, 0)), (0.254, 1.82, 0.04)))
+    # outer wing panels only (|y| 0.110..0.910 m); the centre section is hull
+    for side, s in (('left', 1), ('right', -1)):
+        out.append(box(('wing_%s_collision' % side, (-0.0394 - pivot[0], s * 0.5103, 0.1434 - pivot[2], 0, 0, 0)),
+                       (0.2531, 0.800, 0.040)))
     out.append('    </link>\n')
 
     effort = tilt.get('stall_torque_Nm') or 10.0

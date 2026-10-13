@@ -42,12 +42,15 @@ tilt_drive:
 # ---------------------------------------------------------------------------------------------------------------
 # PLACEHOLDER — NOT MEASURED. Used only while the fields above are null, so the sim can run before the
 # measurement session. Sources: AUW 5.0 kg (2026-10-07 flights); CG x 0.445 m (canonical, JSBSim/VSPAERO).
-# Inertia: Roskam radius-of-gyration estimates (Rx 0.25, Ry 0.38, Rz 0.39) for b = 1.82 m, L = 1.13 m, 5 kg.
-# JSBSim's 0.1012/0.0521/0.073 is NOT used: a 1.2 kg wing of 1.82 m span alone has Ixx ~0.2, so the JSBSim
-# values cannot contain it. Wing: 0.7 kg structure as a plate + motors/ESCs near the pivot. CG z, wing share and
-# pivot are guesses from Nick's mesh geometry.
+# Inertia: Roskam radius-of-gyration estimates (Rx 0.25, Ry 0.38, Rz 0.39) for b = 1.82 m, L = 1.13 m, 5 kg,
+# with Ixx/Izz raised for the outboard wing panels. JSBSim's 0.1012/0.0521/0.073 is NOT used: a 1.2 kg wing of
+# 1.82 m span alone has Ixx ~0.2, so the JSBSim values cannot contain it.
+# Wing = the two outer panels (|y| 0.11..0.91 m, incl. nacelles/motors); the centre section is hull. Panel CG
+# from the STEP panel centroids, pulled forward for the motors.
+# Pivot: the 16.2 mm spanwise bore in the fuselage centre section of AHAB_FINAL_simv2.stp
+# (model x 0.000, z 0.1427 m) -> datum x 0.483, z 0.284. Confirm against the tape measurement.
 placeholder:
-  aircraft: {mass: 5.0, cg: {x: 0.445, y: 0.0, z: 0.16}, I: {xx: 0.26, yy: 0.23, zz: 0.41}}
-  wing:     {mass: 1.2, cg: {x: 0.47, y: 0.0, z: 0.285}, I: {xx: 0.21, yy: 0.007, zz: 0.215}}
-  tilt_pivot: {x: 0.47, z: 0.285}
+  aircraft: {mass: 5.0, cg: {x: 0.445, y: 0.0, z: 0.16}, I: {xx: 0.29, yy: 0.23, zz: 0.44}}
+  wing:     {mass: 1.2, cg: {x: 0.48, y: 0.0, z: 0.283}, I: {xx: 0.235, yy: 0.006, zz: 0.24}}
+  tilt_pivot: {x: 0.483, z: 0.284}
   parts: {aileron: 0.020, ruddervator: 0.015, prop: 0.025}

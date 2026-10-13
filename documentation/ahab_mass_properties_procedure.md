@@ -11,8 +11,9 @@ computed by subtraction. The tilt mechanism stays on the hull, so it is counted 
 
 - Flight configuration: flight battery installed and strapped where it flies, all avionics, props on, hatches closed.
   Wing at **level** (tilt 0°).
-- **Wing assembly** = everything that comes off with the wing: wing, nacelles, motors, props, ESCs on the wing, ailerons
-  and their servos. Whatever stays on the hull when the wing is off (tilt drive, gearbox, encoder) is hull.
+- **Wing assembly** = everything that **tilts**: the two outer wing panels with their nacelles, motors, props, ESCs,
+  ailerons and aileron servos (plus any tube/spar that turns with them). The wing centre section over the fuselage,
+  the hatches, the tilt drive, gearbox and encoder do not tilt, so they count as hull.
 - **Datum** — measure every position from this datum:
   - **x** = distance aft of the **nose tip**
   - **y** = to the right (looking forward)
