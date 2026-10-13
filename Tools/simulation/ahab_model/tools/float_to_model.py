@@ -4,11 +4,11 @@
     python3 build_model.py
 
 Placement (user, 2026-10-13): float centreline 748.5 mm from the aircraft centreline, float front 11 mm ahead of
-the wing leading edge, one per side (mirrored). The struts hang from the wing underside, so the floats are part
-of the tilting wing.
+the wing leading edge, one per side (mirrored), pitched 3 deg nose-up about the strut tops. The struts hang from
+the wing underside, so the floats are part of the tilting wing.
 
 Float file frame (Inventor, mm): x along the float (+ = nose: the +x end's bottom sweeps up like a ski),
-y = down from the wing (strut free ends at y ~ -3), z = lateral (struts centred at z 637.5).
+y = down from the wing (strut free ends at y ~ -3), z = left (struts centred at z 637.5).
 The wing's leading edge and lower surface at the float station are read from wing.glb.
 
 Floats are solid (367 cm^3, ~ the elliptical-section envelope), so their buoyancy boxes carry the exact solid
@@ -32,6 +32,7 @@ STEP, _, MESH_DIR, BOXES = sys.argv[1:5]
 
 SPAN = 0.7485          # m, float centreline from aircraft centreline
 NOSE_AHEAD = 0.011     # m, float front ahead of the wing leading edge
+INCIDENCE_DEG = 3.0    # float pitched nose-up relative to the hull waterline (user, 2026-10-13), about the strut tops
 LATERAL_CENTRE = 637.5  # mm, float/strut centre in the file's z
 
 
@@ -77,13 +78,27 @@ for s in struts:
 
 z_ref = float(np.mean(offsets))  # model z of file y = 0
 
+# incidence pivot: midway between the strut tops, where they meet the wing
+pivot_x = float(np.mean([x_le + NOSE_AHEAD + (strut_top(s)[0] - x_nose_file) / 1000.0 for s in struts]))
+pivot_z = z_ref
+ca, sa = np.cos(np.radians(INCIDENCE_DEG)), np.sin(np.radians(INCIDENCE_DEG))
+
 
 def place(V, side):
     """File (mm) -> model (m) for the float on side +1 (left, +y) or -1 (right)."""
     x = x_le + NOSE_AHEAD + (V[:, 0] - x_nose_file) / 1000.0
     z = z_ref - V[:, 1] / 1000.0
-    y = side * (SPAN - (V[:, 2] - LATERAL_CENTRE) / 1000.0)
-    return np.stack([x, y, z], axis=1)
+    # file x (nose) / y (down) / z form a right-handed set with z = left, so side +1 is a proper rotation and
+    # side -1 its mirror image (which flips the triangle winding)
+    y = side * (SPAN + (V[:, 2] - LATERAL_CENTRE) / 1000.0)
+    # nose-up incidence: rotate about the strut tops in the x-z plane (points ahead of the pivot go up)
+    dx, dz = x - pivot_x, z - pivot_z
+    return np.stack([pivot_x + ca * dx - sa * dz + x_shift, y, pivot_z + sa * dx + ca * dz], axis=1)
+
+
+# the 11 mm nose lead was measured on the installed (inclined) float: shift so the rotated nose keeps it
+x_shift = 0.0
+x_shift = x_le + NOSE_AHEAD - place(sb.mesh(float_body[0], 0.1)[0], 1)[:, 0].max()
 
 
 # --- visuals: float + struts + mount, both sides
@@ -129,6 +144,21 @@ with open(BOXES) as f:
     cb = json.load(f)
 
 cb['wing'] = [b for b in cb['wing'] if not b.get('float')] + [dict(b, float=True) for b in boxes]
+
+# hydrodynamic surface panels for both floats (WaterHydrodynamics plugin), model frame, on the wing
+panels = []
+
+for side in (1, -1):
+    c, nrm, a = sb.surface_panels(float_body, lambda V, side=side: place(V, side), deflection=4.0)
+
+    if side < 0:
+        nrm = -nrm   # place() mirrors y, which flips the triangle winding and so the computed normal
+
+    panels += [{'pos': ci.round(5).tolist(), 'n': ni.round(4).tolist(), 'area': round(float(ai), 7)}
+               for ci, ni, ai in zip(c, nrm, a)]
+
+cb['panels_float'] = panels
+print('float panels: %d (both sides), %.4f m^2 per float' % (len(panels), sum(p['area'] for p in panels) / 2))
 cb['floats_source'] = STEP.split('/')[-1]
 
 with open(BOXES, 'w') as f:

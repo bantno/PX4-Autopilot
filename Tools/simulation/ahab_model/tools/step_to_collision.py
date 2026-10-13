@@ -40,6 +40,11 @@ def to_model(p):
     return np.array([-z, -x, y]) / 1000.0
 
 
+def to_model_v(V):
+    """Vectorized STEP (mm) -> model (m) for an (n, 3) array."""
+    return np.stack([-V[:, 2], -V[:, 0], V[:, 1]], axis=1) / 1000.0
+
+
 def cell(solids, lo, hi):
     """Volume (mm^3) and centroid (STEP frame) of the solids inside the axis-aligned box lo..hi."""
     box = BRepPrimAPI_MakeBox(gp_Pnt(*lo), gp_Pnt(*hi)).Shape()
@@ -77,6 +82,7 @@ bodies = [s for _, s in sb.solids(STEP)]
 wing_idx = [i for i, s in enumerate(bodies)
             if (lambda b: (b[3] - b[0]) > 500 and (b[4] - b[1]) < 60 and min(abs(b[0]), abs(b[3])) > 100)(sb.info(s)[0])]
 hull = [s for i, s in enumerate(bodies) if i not in wing_idx]
+hull_all = list(hull)
 vtail_idx = [i for i in range(len(bodies)) if i not in wing_idx and sb.info(bodies[i])[0][4] > 200 and sb.info(bodies[i])[0][5] > 400]
 fuse = [s for i, s in enumerate(bodies) if i not in wing_idx and i not in vtail_idx]   # fuselage + hatches
 vtail = [bodies[i] for i in vtail_idx]
@@ -166,6 +172,14 @@ for x0 in np.arange(lo[0], hi[0], DY_WING):
     centre = to_model(c)
     out['wing'].append({'pos': centre.round(5).tolist(), 'size': [round(chord / 1000, 5), DY_WING / 1000, thick / 1000]})
     total['wing'] += V
+
+# --- hydrodynamic surface panels (WaterHydrodynamics plugin): the real hull surface with true normals.
+# Fuselage + hatches + V-tail: outer skin only (the fuselage is an open shell). Wing panels: all faces.
+for key, solids, outer in (('panels_hull', hull_all, True), ('panels_wing', wing, False)):
+    c, n, a = sb.surface_panels(solids, to_model_v, outer_only=outer, deflection=8.0)
+    out[key] = [{'pos': ci.round(5).tolist(), 'n': ni.round(4).tolist(), 'area': round(float(ai), 7)}
+                for ci, ni, ai in zip(c, n, a)]
+    print('%s: %d panels, %.3f m^2' % (key, len(a), a.sum()))
 
 with open(OUT, 'w') as f:
     json.dump(out, f, indent=1)

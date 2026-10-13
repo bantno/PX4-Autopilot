@@ -127,6 +127,87 @@ def write_glb(path, V, F, name, rgba):
         f.write(struct.pack('<II', len(blob), 0x004E4942) + blob)
 
 
+def _ray_hits(origin, direction, A, B, C, eps=1e-9):
+    """Moller-Trumbore: does the ray origin + t*direction (t > 0) hit any triangle (A, B, C)?"""
+    e1, e2 = B - A, C - A
+    p = np.cross(direction, e2)
+    det = np.einsum('ij,ij->i', e1, p)
+    ok = np.abs(det) > eps
+    inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
+    s = origin - A
+    u = np.einsum('ij,ij->i', s, p) * inv
+    q = np.cross(s, e1)
+    v = (q @ direction) * inv
+    t = np.einsum('ij,ij->i', e2, q) * inv
+    return np.any(ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > 1e-6))
+
+
+def surface_panels(solids, to_model, outer_only=False, max_area=6.25e-4, deflection=2.0, merge_size=0.025):
+    """Hull-surface panels (centre, outward unit normal, area) in the model frame.
+
+    Meshes the solids (mm), maps them with `to_model` (a proper rotation + scale to m), splits triangles until
+    their area is at most `max_area` (m^2), and with `outer_only` keeps only triangles whose outward normal ray does
+    not hit the solids again (drops the inner skin of an open thin-walled shell, which faces the cavity). With
+    `merge_size` (m), triangles are then merged per voxel and normal direction to keep the panel count small.
+    """
+    tris = []
+
+    for s in solids:
+        V, F = mesh(s, deflection)
+        tris.append(to_model(V)[F])
+
+    T = np.concatenate(tris)
+
+    def normal_area(t):
+        c = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+        a = 0.5 * np.linalg.norm(c, axis=1)
+        return c / np.maximum(2 * a, 1e-12)[:, None], a
+
+    if outer_only:
+        n, a = normal_area(T)
+        A, B, C = T[:, 0], T[:, 1], T[:, 2]
+        centre = T.mean(axis=1)
+        keep = np.array([not _ray_hits(centre[i] + 1e-4 * n[i], n[i], A, B, C) for i in range(len(T))])
+        T = T[keep & (a > 0)]
+
+    # split large triangles 1 -> 4 at the edge midpoints until small enough for a clean waterline cut
+    while True:
+        _, a = normal_area(T)
+        big = a > max_area
+
+        if not big.any():
+            break
+
+        t = T[big]
+        m01, m12, m20 = (t[:, 0] + t[:, 1]) / 2, (t[:, 1] + t[:, 2]) / 2, (t[:, 2] + t[:, 0]) / 2
+        split = np.concatenate([np.stack(x, axis=1) for x in ((t[:, 0], m01, m20), (m01, t[:, 1], m12),
+                                                             (m20, m12, t[:, 2]), (m01, m12, m20))])
+        T = np.concatenate([T[~big], split])
+
+    n, a = normal_area(T)
+    T, n, a = T[a > 0], n[a > 0], a[a > 0]   # degenerate triangles would make empty, NaN panels
+    c = T.mean(axis=1)
+
+    if not merge_size:
+        return c, n, a
+
+    # merge into panels: same merge_size voxel and same normal direction (64-point Fibonacci sphere), keeping the
+    # summed area, area-weighted centre and area-weighted mean normal
+    k = np.arange(64) + 0.5
+    phi = np.arccos(1 - 2 * k / 64)
+    theta = np.pi * (1 + 5 ** 0.5) * k
+    dirs = np.stack([np.cos(theta) * np.sin(phi), np.sin(theta) * np.sin(phi), np.cos(phi)], axis=1)
+    key = np.concatenate([np.floor(c / merge_size).astype(np.int64), np.argmax(n @ dirs.T, axis=1)[:, None]], axis=1)
+    _, inv = np.unique(key, axis=0, return_inverse=True)
+    inv = inv.ravel()
+    m = inv.max() + 1
+    area = np.bincount(inv, weights=a, minlength=m)
+    centre = np.stack([np.bincount(inv, weights=a * c[:, i], minlength=m) for i in range(3)], axis=1) / area[:, None]
+    nsum = np.stack([np.bincount(inv, weights=a * n[:, i], minlength=m) for i in range(3)], axis=1)
+    normal = nsum / np.maximum(np.linalg.norm(nsum, axis=1), 1e-12)[:, None]
+    return centre, normal, area
+
+
 if __name__ == '__main__':
     for name, s in solids(sys.argv[1]):
         (x0, y0, z0, x1, y1, z1), vol, c = info(s)
