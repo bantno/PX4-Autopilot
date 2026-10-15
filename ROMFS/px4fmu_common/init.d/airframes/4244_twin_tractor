@@ -140,11 +140,11 @@ param set-default SUN_TILT_REV 1
 # Sun-tracking is opt-in: enable with SUN_TRK_EN once the encoder/ESC are wired.
 param set-default SUN_TRK_EN 0
 
-# Sun tracker startup. 'as5600' is the AS5600 wing-angle encoder on external I2C bus 4
-# (-X external, -b 4 bus number). 'sun_tracker' gates on valid attitude/GPS/encoder data
+# Sun tracker startup. 'as5600' is the AS5600 wing-angle encoder on external I2C bus 3
+# (-X external, -b 3 bus number). 'sun_tracker' gates on valid attitude/GPS/encoder data
 # until SUN_TRK_EN is set.
 wing_tilt start
-as5600 start -X -b 4
+as5600 start -X -b 3
 sun_tracker start
 
 # Autonomous self-righting (props-only inverted recovery), sharing the tilt-wing actuator/encoder.
@@ -155,12 +155,12 @@ param set-default SR_TILT_SP -1.57
 param set-default COM_FLTMODE6 17
 self_right start
 
-# Battery charging monitor: INA226 on the charge path, external I2C bus 4 (shared with
+# Battery charging monitor: INA226 on the charge path, external I2C bus 3 (shared with
 # the AS5600 encoder; INA226 is 0x40-0x4F, AS5600 is fixed 0x36, so no address conflict).
 # Publishes to the battery_charging uORB topic, separate from battery_status.
 # NOTE: -a 0x40 is the common breakout default; change it to match your strapped address.
 # -k keeps the driver retrying if the INA226 is not yet powered.
-ina226_charger start -X -b 4 -a 0x40 -k
+ina226_charger start -X -b 3 -a 0x40 -k
 
 # Companion-computer float/fly autonomy (ahab-companion on a Raspberry Pi over Ethernet).
 # uXRCE-DDS client over the network (CFG 1000 = Ethernet); the agent runs on the Pi
