@@ -36,7 +36,11 @@
  *
  * Per-panel hull hydrodynamics on a flat water surface (Kerner, "Water interaction model for boats in video games",
  * Just Cause 3, 2015; same force set as the asv_wave_sim HydrodynamicsPlugin, Mainwaring). Buoyancy is left to
- * gz-sim's graded Buoyancy system on the same collisions.
+ * gz-sim's graded Buoyancy system on the same collisions, unless <hydrostatics> is true: then each submerged panel
+ * also gets the hydrostatic pressure F = -rho g depth S n (at its centre, depth below <water_level>), which over a
+ * closed panel surface integrates to the buoyant force and moment (divergence theorem) without any buoyancy
+ * collisions. That is much cheaper in gz than hundreds of buoyancy boxes (each collision shape costs physics time
+ * every step). The hydrostatic part is not subject to the drag limiter or the impact limits below.
  *
  * The hull surface comes from <panels_file> (next to model.sdf): one panel per line, "link x y z nx ny nz area" in the
  * model frame, generated from the real hull surface (true normals, so a raked bow gives lift). Without it, panels
@@ -109,6 +113,8 @@ private:
 	gz::sim::Model _model{gz::sim::kNullEntity};
 	std::vector<LinkPanels> _links;
 	bool _initialized{false};
+	bool _hydrostatics{false};
+	double _gravity{9.8}; // m/s^2, magnitude, from the world
 
 	std::string _panels_path;
 	double _water_level{0.0};

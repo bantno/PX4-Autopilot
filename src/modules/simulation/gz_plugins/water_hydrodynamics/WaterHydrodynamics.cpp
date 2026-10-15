@@ -38,6 +38,8 @@
 #include <gz/sim/components/Collision.hh>
 #include <gz/sim/components/Inertial.hh>
 #include <gz/sim/components/Pose.hh>
+#include <gz/sim/Util.hh>
+#include <gz/sim/World.hh>
 #include <sdf/Box.hh>
 #include <sdf/Collision.hh>
 #include <sdf/Geometry.hh>
@@ -115,6 +117,7 @@ void WaterHydrodynamics::Configure(const gz::sim::Entity &entity, const std::sha
 	}
 
 	_water_level = sdf->Get<double>("water_level", _water_level).first;
+	_hydrostatics = sdf->Get<bool>("hydrostatics", _hydrostatics).first;
 	_waterline_band = sdf->Get<double>("waterline_band", _waterline_band).first;
 	_max_force = sdf->Get<double>("max_force", _max_force).first;
 	_max_torque = sdf->Get<double>("max_torque", _max_torque).first;
@@ -304,6 +307,17 @@ void WaterHydrodynamics::PreUpdate(const gz::sim::UpdateInfo &info, gz::sim::Ent
 		}
 
 		readInertia(ecm);
+
+		const auto gravity = gz::sim::World(gz::sim::worldEntity(ecm)).Gravity(ecm);
+
+		if (gravity) {
+			_gravity = gravity->Length();
+		}
+
+		if (_hydrostatics) {
+			gzmsg << "WaterHydrodynamics: hydrostatic buoyancy from the panels (g = " << _gravity << ")" << std::endl;
+		}
+
 		return;
 	}
 
@@ -321,6 +335,8 @@ void WaterHydrodynamics::PreUpdate(const gz::sim::UpdateInfo &info, gz::sim::Ent
 
 		gz::math::Vector3d force(0, 0, 0);
 		gz::math::Vector3d torque(0, 0, 0);
+		gz::math::Vector3d hs_force(0, 0, 0);
+		gz::math::Vector3d hs_torque(0, 0, 0);
 		double submerged_area = 0.0;
 
 		for (const auto &panel : lp.panels) {
@@ -338,6 +354,16 @@ void WaterHydrodynamics::PreUpdate(const gz::sim::UpdateInfo &info, gz::sim::Ent
 			}
 
 			const double area = fraction * panel.area;
+
+			// hydrostatic pressure at the panel centre, against the outward normal (zero at the waterline)
+			const double depth = _water_level - (pose->Pos().Z() + r.Z());
+
+			if (_hydrostatics && depth > 0.0) {
+				const gz::math::Vector3d f_hs = -(kWaterDensity * _gravity * depth * panel.area) * n;
+				hs_force += f_hs;
+				hs_torque += r.Cross(f_hs);
+			}
+
 			const gz::math::Vector3d vp = *v_origin + omega->Cross(r);
 			const double vp_len = vp.Length();
 			submerged_area += area;
@@ -416,8 +442,9 @@ void WaterHydrodynamics::PreUpdate(const gz::sim::UpdateInfo &info, gz::sim::Ent
 			torque *= _max_torque / torque.Length();
 		}
 
-		// applied at the link origin; the torques above are taken about that point
-		lp.link.AddWorldWrench(ecm, force, torque);
+		// applied at the link origin; the torques above are taken about that point. Buoyancy is a conservative
+		// force: never clipped by the drag limiter or the impact limits.
+		lp.link.AddWorldWrench(ecm, force + hs_force, torque + hs_torque);
 	}
 }
 

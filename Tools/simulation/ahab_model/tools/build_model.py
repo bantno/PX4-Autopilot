@@ -9,7 +9,10 @@ Inputs (nothing in model.sdf is hand-edited; change these and re-run):
   by tools/step_to_glb.py
 - mass properties: mass_properties.yaml via tools/mass_properties.py (measured; placeholder until then)
 - aero: AHAB_combined_betasym.stab via tools/stab_to_gz.py, rate derivatives from rate_derivatives.yaml
-- collision/buoyancy boxes: collision_boxes.json via tools/step_to_collision.py
+- collision/buoyancy boxes: collision_boxes.json via tools/step_to_collision.py. By default buoyancy comes from
+  the closed hydro panel surface (WaterHydrodynamics <hydrostatics>, validated against the boxes by
+  tools/panel_hydrostatics.py) and only thin ground-contact skids are emitted, because every collision shape costs
+  gz physics time (the 310 boxes were ~60 % of the step). AHAB_BOX_BUOYANCY=1 emits the boxes instead (A/B checks).
 - propulsion: JSBSim Cine66 925KV + 9x5x3 (Engines/9x5x3.xml): C_T 0.105, C_P 0.050, D 0.2286 m,
   17.3 kRPM full throttle -> 29.2 N, motorConstant 8.9e-6, momentConstant 0.0173
 
@@ -53,6 +56,10 @@ HYDRO = dict(panels_file='model://twin_tractor_seaplane/hydro_panels.txt', water
              cDampL1=1.0, cDampL2=1.0, cDampR1=20.0, cDampR2=2.0,
              max_force=500.0, max_torque=100.0)   # ~10 g on 5 kg: impact safety limit only
 
+# Buoyancy source: panel hydrostatics (default) or the legacy box collisions with the world's Buoyancy system
+BOX_BUOYANCY = os.environ.get('AHAB_BOX_BUOYANCY', '') == '1'
+SKID_THICKNESS = 0.002  # m; ground-contact skids under keel and floats (their Buoyancy-system volume is < 1 %)
+
 # --- propulsion (see docstring)
 MOTOR = dict(max_rot_velocity=1811, motor_constant=8.9e-06, moment_constant=0.0173)
 
@@ -92,6 +99,20 @@ def box(pose, size):
 ''' % (pose[0], ' '.join(f(v) for v in pose[1]), ' '.join(f(v) for v in size))
 
 
+def skids(boxes, select):
+    """One thin box under the lowest layer of the selected boxes (model frame): ground contact without the
+    collision count (or buoyancy volume) of the full box set."""
+    sel = [b for b in boxes if select(b)]
+    zmin = min(b['pos'][2] - b['size'][2] / 2 for b in sel)
+    low = [b for b in sel if b['pos'][2] - b['size'][2] / 2 < zmin + 0.005]
+    x0 = min(b['pos'][0] - b['size'][0] / 2 for b in low)
+    x1 = max(b['pos'][0] + b['size'][0] / 2 for b in low)
+    y0 = min(b['pos'][1] - b['size'][1] / 2 for b in low)
+    y1 = max(b['pos'][1] + b['size'][1] / 2 for b in low)
+    return {'pos': [(x0 + x1) / 2, (y0 + y1) / 2, zmin + SKID_THICKNESS / 2],
+            'size': [x1 - x0, y1 - y0, SKID_THICKNESS]}
+
+
 def child_link(name, pose, mass, ipose, I_diag, vis):
     I = [[I_diag[0], 0, 0], [0, I_diag[1], 0], [0, 0, I_diag[2]]]
     return '''    <link name="%s">
@@ -120,6 +141,7 @@ def sensors():
 
 def build():
     # calibration sweeps: AHAB_HYDRO='{"cPDrag1": 30}' overrides HYDRO entries, AHAB_TILT_EFFORT the tilt torque limit
+    HYDRO['hydrostatics'] = 'false' if BOX_BUOYANCY else 'true'
     HYDRO.update(json.loads(os.environ.get('AHAB_HYDRO', '{}')))
 
     with open(mass_properties.DEFAULT_YAML) as fp:
@@ -167,7 +189,9 @@ def build():
         out.append(visual('fin_visual', 'fin.glb', (0, 0, 0, 0, 0, 0)))
     # Volume-preserving boxes from the STEP (tools/step_to_collision.py): they set buoyancy on water and
     # ground contact, so the hull's outer envelope and the panel volumes are what matter here.
-    for i, b in enumerate(cboxes['hull']):
+    hull_boxes = cboxes['hull'] if BOX_BUOYANCY else [skids(cboxes['hull'], lambda b: True)]
+
+    for i, b in enumerate(hull_boxes):
         out.append(box(('hull_%d' % i, tuple(b['pos']) + (0, 0, 0)), b['size']))
     out.append(sensors())
     out.append('    </link>\n')
@@ -183,7 +207,10 @@ def build():
         out.append(visual('floats_visual', 'floats.glb', (-pivot[0], -pivot[1], -pivot[2], 0, 0, 0)))
 
     # outer wing panels only (|y| 0.110..0.910 m; the centre section is hull) and the wingtip floats
-    for i, b in enumerate(cboxes['wing']):
+    wing_boxes = cboxes['wing'] if BOX_BUOYANCY else [
+        skids(cboxes['wing'], lambda b, s=s: s * b['pos'][1] > 0.6) for s in (1, -1)]
+
+    for i, b in enumerate(wing_boxes):
         p = b['pos']
         out.append(box(('wing_%d' % i, (p[0] - pivot[0], p[1] - pivot[1], p[2] - pivot[2], 0, 0, 0)), b['size']))
     out.append('    </link>\n')
@@ -242,8 +269,9 @@ def build():
       <initial_velocity>0</initial_velocity>
     </plugin>
     <!-- hull hydrodynamics on the water (PX4 gz plugin, src/modules/simulation/gz_plugins/water_hydrodynamics):
-         per-panel pressure drag / suction / viscous drag (Kerner 2015, as in asv_wave_sim), built from the box
-         collisions; buoyancy comes from the world's graded Buoyancy system. Nothing is applied out of the water. -->
+         per-panel pressure drag / suction / viscous drag (Kerner 2015, as in asv_wave_sim) on the STEP hull surface
+         (hydro_panels.txt); buoyancy from hydrostatic pressure on the same closed panels when <hydrostatics> is
+         true, else from the world's graded Buoyancy system on the box collisions. Nothing applied out of the water. -->
     <plugin filename="libWaterHydrodynamicsPlugin.so" name="water_hydrodynamics::WaterHydrodynamics">
 %s    </plugin>
     <!-- wing angle feedback -> gz_bridge -> sensor_encoder (SIM_GZ_EN_TILT) -->
