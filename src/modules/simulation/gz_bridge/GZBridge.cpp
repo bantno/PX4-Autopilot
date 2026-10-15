@@ -61,6 +61,13 @@ GZBridge::~GZBridge()
 
 int GZBridge::init()
 {
+	const char *utc_epoch = getenv("PX4_SIM_UTC_EPOCH_US");
+
+	if (utc_epoch) {
+		_utc_epoch_us = strtoull(utc_epoch, nullptr, 10);
+		PX4_INFO("GPS UTC = %llu us + sim time", (unsigned long long)_utc_epoch_us);
+	}
+
 	// REQUIRED:
 	if (!subscribeClock(true)) {
 		return PX4_ERROR;
@@ -840,7 +847,7 @@ void GZBridge::navSatCallback(const gz::msgs::NavSat &msg)
 
 	sensor_gps.timestamp = timestamp;
 	sensor_gps.timestamp_sample = timestamp;
-	sensor_gps.time_utc_usec = 0;
+	sensor_gps.time_utc_usec = _utc_epoch_us > 0 ? _utc_epoch_us + timestamp : 0;
 	sensor_gps.device_id = id.devid;
 	sensor_gps.latitude_deg = latitude;
 	sensor_gps.longitude_deg = longitude;

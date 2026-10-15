@@ -183,6 +183,10 @@ private:
 
 	float _temperature{288.15};  // 15 degrees
 
+	// GPS UTC time = this epoch + sim time when PX4_SIM_UTC_EPOCH_US is set (scenario replay at a chosen date and
+	// time-accelerated runs); 0 = no UTC from the simulated GPS (default)
+	uint64_t _utc_epoch_us{0};
+
 	bool _realtime_clock_set{false};
 	gz::transport::Node _node;
 
