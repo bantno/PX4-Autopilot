@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<!-- Sydney Regatta Centre shoreline: the Fuel model sydney_regatta (Open Robotics) without its buildings.
+     Meshes and textures are referenced from Gazebo Fuel (cached in ~/.gz/fuel after the first run). -->
+<sdf version="1.9">
+  <model name="regatta_shore">
+    <static>true</static>
+    <link name="link">
+      <visual name="terrain">
+        <geometry><mesh><uri>https://fuel.gazebosim.org/1.0/openrobotics/models/sydney_regatta/3/files/meshes/sydney_regatta.dae</uri><submesh><name>Terrain</name></submesh></mesh></geometry>
+      </visual>
+      <visual name="dock">
+        <geometry><mesh><uri>https://fuel.gazebosim.org/1.0/openrobotics/models/sydney_regatta/3/files/meshes/sydney_regatta.dae</uri><submesh><name>Dock</name></submesh></mesh></geometry>
+      </visual>
+      <visual name="dock_dark">
+        <geometry><mesh><uri>https://fuel.gazebosim.org/1.0/openrobotics/models/sydney_regatta/3/files/meshes/sydney_regatta.dae</uri><submesh><name>DockDark</name></submesh></mesh></geometry>
+      </visual>
+      <visual name="trees">
+        <geometry><mesh><uri>https://fuel.gazebosim.org/1.0/openrobotics/models/sydney_regatta/3/files/meshes/sydney_regatta.dae</uri><submesh><name>TreeDiffuse</name></submesh></mesh></geometry>
+        <material>
+          <diffuse>1.0 1.0 1.0 1</diffuse>
+          <pbr><metal><albedo_map>https://fuel.gazebosim.org/1.0/openrobotics/models/sydney_regatta/3/files/materials/textures/TreeDiffuse.png</albedo_map></metal></pbr>
+        </material>
+      </visual>
+      <collision name="shore">
+        <geometry><mesh><uri>https://fuel.gazebosim.org/1.0/openrobotics/models/sydney_regatta/3/files/meshes/sydney_regatta_shore.dae</uri></mesh></geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>

@@ -56,7 +56,9 @@ class Sim:
         self.dir = os.path.join(BUILD, 'rootfs', 'water_' + name)
         shutil.rmtree(self.dir, ignore_errors=True)
         os.makedirs(self.dir)
-        env = dict(os.environ, PX4_SIMULATOR='gz', PX4_GZ_WORLD='ahab_lake', PX4_SYS_AUTOSTART='4242',
+        # AHAB_GZ_WORLD picks another world from ../worlds (e.g. ahab_regatta for camera footage)
+        env = dict(os.environ, PX4_SIMULATOR='gz', PX4_GZ_WORLD=os.environ.get('AHAB_GZ_WORLD', 'ahab_lake'),
+                   PX4_SYS_AUTOSTART='4242',
                    PX4_SIM_MODEL='gz_twin_tractor_seaplane')
         env.pop('GTK_PATH', None)
 

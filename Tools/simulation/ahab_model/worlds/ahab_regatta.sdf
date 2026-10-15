@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AHAB regatta: the Sydney International Regatta Centre (VRX scenery) for camera footage - a 2.2 km rowing course
+  with tree-lined banks, the warm-up lake and docks. Same water physics as ahab_lake (flat water at z = 0: the
+  model's WaterHydrodynamics panels + graded buoyancy); the waves are visual only (small amplitude so the hull does
+  not appear to sink into or hover over them).
+
+    PX4_GZ_WORLD=ahab_regatta PX4_GZ_MODEL_POSE="-850,-15,0.3,0,0,-0.04" make px4_sitl gz_twin_tractor_seaplane
+
+  Course centre line runs east (ENU yaw about -0.04 rad) from x -1000 to +1250 at y about -10.
+  Scenery: regatta_shore (Fuel sydney_regatta without buildings, fetched on first use), coast_waves
+  (MaritimeWaveVisual plugin), dock_2022_base. A world that declares plugins replaces the server.config defaults, so
+  the PX4 set is repeated here.
+-->
+<sdf version="1.9">
+  <world name="ahab_regatta">
+    <physics type="ode">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>250</real_time_update_rate>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-air-pressure-system" name="gz::sim::systems::AirPressure"/>
+    <plugin filename="gz-sim-air-speed-system" name="gz::sim::systems::AirSpeed"/>
+    <plugin filename="gz-sim-apply-link-wrench-system" name="gz::sim::systems::ApplyLinkWrench"/>
+    <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat"/>
+    <plugin filename="gz-sim-magnetometer-system" name="gz::sim::systems::Magnetometer"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="libOpticalFlowSystem.so" name="custom::OpticalFlowSystem"/>
+    <plugin filename="libGstCameraSystem.so" name="custom::GstCameraSystem"/>
+
+    <plugin filename="gz-sim-buoyancy-system" name="gz::sim::systems::Buoyancy">
+      <graded_buoyancy>
+        <default_density>1000</default_density>
+        <density_change>
+          <above_depth>0</above_depth>
+          <density>1.225</density>
+        </density_change>
+      </graded_buoyancy>
+    </plugin>
+
+    <!-- wavefield parameters for the water visual (visual only) -->
+    <plugin filename="libMaritimeParamPublisher.so" name="maritime::PublisherPlugin">
+      <message type="gz.msgs.Param" topic="/gazebo/wavefield/parameters" every="2.0">
+        params { key: "direction" value { type: DOUBLE double_value: 0.0 } }
+        params { key: "gain" value { type: DOUBLE double_value: 0.08 } }
+        params { key: "period" value { type: DOUBLE double_value: 3 } }
+        params { key: "steepness" value { type: DOUBLE double_value: 0 } }
+      </message>
+    </plugin>
+
+    <gravity>0 0 -9.8</gravity>
+    <magnetic_field>5.5e-06 2.4e-05 5.2e-05</magnetic_field>
+    <atmosphere type="adiabatic"/>
+    <scene>
+      <sky></sky>
+      <grid>false</grid>
+      <ambient>0.8 0.8 0.8 1</ambient>
+      <background>0.8 0.8 0.8 1</background>
+      <shadows>true</shadows>
+    </scene>
+
+    <light name="sun" type="directional">
+      <pose>0 0 500 0 0 0</pose>
+      <cast_shadows>true</cast_shadows>
+      <intensity>1</intensity>
+      <direction>-0.5 0.1 -0.9</direction>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>3000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+    </light>
+
+    <!-- Sydney International Regatta Centre (estimated from satellite imagery, VRX) -->
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>-33.724223</latitude_deg>
+      <longitude_deg>150.679736</longitude_deg>
+      <elevation>0</elevation>
+      <heading_deg>0.0</heading_deg>
+    </spherical_coordinates>
+
+    <include>
+      <name>regatta_shore</name>
+      <pose>0 0 0.2 0 0 0</pose>
+      <uri>model://regatta_shore</uri>
+    </include>
+
+    <include>
+      <name>water</name>
+      <pose>0 0 0 0 0 0</pose>
+      <uri>model://coast_waves</uri>
+    </include>
+
+    <include>
+      <name>dock</name>
+      <pose>-545 165 0 0 0 -1.69</pose>
+      <uri>model://dock_2022_base</uri>
+    </include>
+
+    <!-- lake bed under the whole scene, collision only (the shore mesh has no floor) -->
+    <model name="lakebed">
+      <static>true</static>
+      <pose>0 0 -6 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>6000 6000</size></plane></geometry>
+        </collision>
+      </link>
+    </model>
+  </world>
+</sdf>

@@ -26,6 +26,8 @@ PX4 finds this model through `PX4_GZ_MODELS_EXTRA` (`src/modules/simulation/gz_b
 | `tools/step_to_glb.py`, `tools/step_bodies.py` | STEP → `hull.glb` / `wing.glb` (needs `cadquery-ocp` in a venv; usage in the docstring) |
 | `tools/step_to_collision.py` | STEP → volume-exact boxes (fuselage outer envelope, solid wing/V-tail) + hull/wing surface panels |
 | `worlds/ahab_lake.sdf` | Lake world: graded buoyancy, lakebed at −10 m, home at the 2026-10-03 test site |
+| `worlds/ahab_regatta.sdf` | Scenery world for camera footage: Sydney regatta course (trees, docks, wave visual), same water physics |
+| `tools/regatta_video.py` | Camera videos in `ahab_regatta`: water takeoff + cruise, or capsized → SELF_RIGHT → `videos/*.webm` |
 
 ### Source CAD and regeneration
 
@@ -142,6 +144,41 @@ Results (`water_scenarios.py`, placeholder mass properties):
 | taxi 15 / 30 / 50 / 80 / 100 % | 0.7 / 1.8 / 3.6 / 7.4 / 8.9 m/s, nose-up trim, stable |
 | PX4 auto takeoff from the water | off in 4.1 s / 42 m at 22 m/s, heading held within 5°, climbs to 100 m |
 | self-right (`SR_OVERCTR` 1.4) | flips and settles level; slower than 2026-10-03 (gap 7) |
+
+## Scenery world (`PX4_GZ_WORLD=ahab_regatta`)
+
+`worlds/ahab_regatta.sdf` is the Sydney International Regatta Centre from the VRX scenery, for camera footage. It
+has the same water physics as `ahab_lake`. Scenery:
+
+| Model | What |
+|---|---|
+| `regatta_shore` | Fuel `openrobotics/sydney_regatta` (fetched to `~/.gz/fuel` on first use, about 137 MB): terrain, trees and the course docks only; the buildings are left out |
+| `coast_waves` | Animated Gerstner-wave water surface (6 km), visual only, via the `MaritimeWaveVisual` / `MaritimeParamPublisher` plugins in `src/modules/simulation/gz_plugins/wave_visual` (gz-sim example code, Apache-2.0). The amplitude is kept small so the hull on the flat physics surface doesn't sink into or hover over the waves |
+| `dock_2022_base`, `dock_block_4x4` | Floating dock on the warm-up lake (VRX models; normal map downscaled to 1024 px) |
+
+The competition assets from the source package are not included: WAM-V, BlueBoat, buoys, helipads, drone platforms, posts, antenna and tents.
+
+The 2.2 km rowing course runs east (ENU yaw about −0.04 rad), from x −1000 to +1250 at y about −10.
+
+**Camera videos** (`tools/regatta_video.py`). Both scenarios spawn at the west end of the course facing down it.
+- **`takeoff`:** flies a mission: water takeoff, then cruise down the course at 40 m. The landing at the east end is required by `MIS_TKO_LAND_REQ`.
+- **`selfright`:** spawns inverted at rest, then sends SELF_RIGHT + arm (`SR_OVERCTR 1.4`, as `selfright_video.py` uses). It records until the module has disarmed and the hull has settled.
+
+Each run writes the three cameras tiled with a status line (`videos/<scenario>_regatta_<time>.webm`) plus the forward camera at full size (`*_forward.webm`).
+
+```bash
+python3 Tools/simulation/ahab_model/tools/regatta_video.py takeoff   [--cruise 60] [--alt 40] [--rtf 0.15]
+python3 Tools/simulation/ahab_model/tools/regatta_video.py selfright [--settle 6] [--rtf 0.15]
+```
+
+Video timing:
+- gz skips camera frames it can't render in time; three 1280x720 cameras manage about 6 frames per wall second here. So the tool runs the sim at `--rtf` 0.15 while recording (about 10 min wall for 90 s of flight).
+- It writes one video frame per 1/fps of sim time, so playback is always real time.
+- The overlay shows the flight state at each frame's sim timestamp.
+
+Known issues in this world:
+- **The simulated magnetic field's declination is mirrored** compared with PX4's world magnetic model: −26° measured vs +12.6° expected. The at-rest heading estimate is about 30° off. It converges once the takeoff run gives GNSS velocity, and the run held the true heading. The tool passes the measured declination at boot (`PX4_PARAM_EKF2_*`).
+- **gz segfaults in the wave plugin's destructor at shutdown.** This happens after the run and is harmless.
 
 ## Known gaps (also flagged in the generated SDF header)
 
