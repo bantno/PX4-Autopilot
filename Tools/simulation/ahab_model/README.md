@@ -22,6 +22,7 @@ PX4 finds this model through `PX4_GZ_MODELS_EXTRA` (`src/modules/simulation/gz_b
 | `tools/build_model.py` | Writes `model.sdf` and `hydro_panels.txt` (`AHAB_HYDRO` / `AHAB_TILT_EFFORT` env overrides for sweeps) |
 | `tools/float_to_model.py`, `tools/fin_to_model.py` | Wingtip floats / ventral fin from their STEP files |
 | `tools/water_scenarios.py` | Water calibration scenarios (headless or `--gui`) |
+| `tools/selfright_video.py` | Self-right demo recorded from the three cameras → `videos/*.webm` (local only, gitignored) |
 | `tools/step_to_glb.py`, `tools/step_bodies.py` | STEP → `hull.glb` / `wing.glb` (needs `cadquery-ocp` in a venv; usage in the docstring) |
 | `tools/step_to_collision.py` | STEP → volume-exact boxes (fuselage outer envelope, solid wing/V-tail) + hull/wing surface panels |
 | `worlds/ahab_lake.sdf` | Lake world: graded buoyancy, lakebed at −10 m, home at the 2026-10-03 test site |
@@ -71,6 +72,31 @@ base_link   hull + V-tail + tilt drive + battery + avionics; IMU/baro/mag/GPS; A
     in the SDF header.
 - **Propulsion**: the JSBSim Cine66 925KV + 9x5x3 operating point: 29.2 N at 1811 rad/s per motor, torque/thrust
   0.0173.
+
+## Cameras
+
+Three camera sensors (`CAMERAS` in `tools/build_model.py`; placeholder optics, no housing mass):
+
+| Sensor | Link | Where | Rate | gz topic |
+|---|---|---|---|---|
+| `camera_forward` | `base_link` | front face of the pylon, under the wing leading edge, looking forward | 30 Hz, 1280x720, 100 deg | default (`/world/ahab_lake/model/<model>/link/base_link/sensor/camera_forward/image`) |
+| `camera_wing` | `wing_link` (tilts with the wing) | under the left wing at y 0.50 m, looking inboard at the hull, 13 deg down | 30 Hz, 1280x720, 100 deg | `/ahab/camera_wing/image` |
+| `camera_down` | `base_link` | just under the keel at x 0.20 m, nadir, image top = forward | 30 Hz, 1280x960, 69 deg | `/ahab/camera_down/image` |
+
+Only the forward camera uses the default topic pattern, so it is the one the world's `GstCameraSystem` streams to
+QGC (UDP 5600). The down camera is underwater while the aircraft floats, and the lake is a flat plane, so there is
+nothing to survey yet.
+
+Rendering is not free even with no subscribers (unthrottled gz server, model floating, 2026-10-14):
+5.4x real time without cameras, 4.0x with cameras and no subscribers, 2.2x with all three subscribed.
+Self-right demo video (inverted start → SELF_RIGHT + arm, all three feeds tiled, flip metrics printed):
+
+```bash
+python3 Tools/simulation/ahab_model/tools/selfright_video.py            # -> videos/selfright_cameras_<time>.webm
+python3 Tools/simulation/ahab_model/tools/selfright_video.py --stills   # + one JPEG per sim second
+```
+
+For speed runs, regenerate with `AHAB_CAMERAS=0 python3 tools/build_model.py` (and back without it afterwards).
 
 ## Water (`PX4_GZ_WORLD=ahab_lake`)
 

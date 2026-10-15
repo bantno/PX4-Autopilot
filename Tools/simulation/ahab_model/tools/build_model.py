@@ -60,6 +60,23 @@ HYDRO = dict(panels_file='model://twin_tractor_seaplane/hydro_panels.txt', water
 BOX_BUOYANCY = os.environ.get('AHAB_BOX_BUOYANCY', '') == '1'
 SKID_THICKNESS = 0.002  # m; ground-contact skids under keel and floats (their Buoyancy-system volume is < 1 %)
 
+# --- cameras: (name, link, pose in the model frame (x y z roll pitch yaw; camera looks along its +x),
+#     horizontal FOV rad, width, height, Hz, gz topic). Placeholder optics, not a specific camera.
+# Only the forward camera keeps the default /world/../sensor/../image topic, so it is the one GstCameraSystem
+# streams to QGC (UDP 5600; it takes the first topic matching that pattern). The others publish on fixed topics.
+# AHAB_CAMERAS=0 leaves them out (speed runs).
+CAMERAS = [
+    # front face of the pylon (x 0.084, z 0.08-0.15 on the centreline), just under the wing leading edge
+    ('camera_forward', 'base_link', (0.090, 0, 0.110, 0, 0, 0), 1.74, 1280, 720, 30, None),
+    # under the left wing, mid-span outboard of the nacelle, looking inboard at the hull (13 deg down)
+    ('camera_wing', 'wing_link', (-0.040, 0.500, 0.112, 0, 0.23, -math.pi / 2), 1.74, 1280, 720, 30,
+     'ahab/camera_wing/image'),
+    # survey: just under the keel (flat bottom at z -0.141, x 0.15-0.25), nadir, image top = forward
+    ('camera_down', 'base_link', (0.200, 0, -0.143, 0, math.pi / 2, 0), 1.2, 1280, 960, 30,
+     'ahab/camera_down/image'),
+]
+CAMERAS_ON = os.environ.get('AHAB_CAMERAS', '1') != '0'
+
 # --- propulsion (see docstring)
 MOTOR = dict(max_rot_velocity=1811, motor_constant=8.9e-06, moment_constant=0.0173)
 
@@ -134,6 +151,33 @@ def revolute(name, parent, child, axis, lo, hi, effort=10, damping=0.001):
 ''' % (name, parent, child, ' '.join(f(v) for v in axis), f(lo), f(hi), f(effort), f(damping))
 
 
+def camera(cam, origin):
+    """Housing visual + camera sensor; the model-frame pose is shifted into the link whose origin is at origin."""
+    name, _, pose, hfov, w, h, hz, topic = cam
+    p = ' '.join(f(v) for v in [pose[0] - origin[0], pose[1] - origin[1], pose[2] - origin[2]] + list(pose[3:]))
+    return '''      <visual name="%s_visual">
+        <pose>%s</pose>
+        <geometry><box><size>0.02 0.025 0.025</size></box></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <sensor name="%s" type="camera">
+        <pose>%s</pose>
+%s        <camera>
+          <horizontal_fov>%s</horizontal_fov>
+          <image><width>%d</width><height>%d</height></image>
+          <clip><near>0.02</near><far>3000</far></clip>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>%s</update_rate>
+        <visualize>true</visualize>
+      </sensor>
+''' % (name, p, name, p, '        <topic>%s</topic>\n' % topic if topic else '', f(hfov), w, h, f(hz))
+
+
+def cameras(link, origin=(0, 0, 0)):
+    return ''.join(camera(c, origin) for c in CAMERAS if CAMERAS_ON and c[1] == link)
+
+
 def sensors():
     with open(os.path.join(HERE, 'sensors.sdf.in')) as fp:
         return fp.read()
@@ -194,6 +238,7 @@ def build():
     for i, b in enumerate(hull_boxes):
         out.append(box(('hull_%d' % i, tuple(b['pos']) + (0, 0, 0)), b['size']))
     out.append(sensors())
+    out.append(cameras('base_link'))
     out.append('    </link>\n')
 
     # --- wing (tilting): wing, nacelles, motors; origin at the tilt pivot
@@ -213,6 +258,7 @@ def build():
     for i, b in enumerate(wing_boxes):
         p = b['pos']
         out.append(box(('wing_%d' % i, (p[0] - pivot[0], p[1] - pivot[1], p[2] - pivot[2], 0, 0, 0)), b['size']))
+    out.append(cameras('wing_link', pivot))
     out.append('    </link>\n')
 
     effort = float(os.environ.get('AHAB_TILT_EFFORT', 0)) or tilt.get('stall_torque_Nm') or 10.0
