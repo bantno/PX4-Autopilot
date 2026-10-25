@@ -61,6 +61,17 @@ int AS5600::init()
 		return ret;
 	}
 
+	_param_zero = param_find("AS5600_ZERO");
+
+	if (_param_zero != PARAM_INVALID) {
+		param_get(_param_zero, &_saved_zero);
+	}
+
+	if (_saved_zero > 4095) {
+		PX4_WARN("AS5600_ZERO %" PRId32 " out of range, latching zero at boot", _saved_zero);
+		_saved_zero = -1;
+	}
+
 	ScheduleOnInterval(AS5600_SAMPLE_INTERVAL);
 	return PX4_OK;
 }
@@ -101,13 +112,33 @@ int AS5600::collect()
 	const bool magnet_detected = (status & AS5600_STATUS_MD);
 	const uint16_t count = (uint16_t)(((raw[0] & 0x0F) << 8) | raw[1]);
 
-	// Latch the boot-time level reference on the first valid reading, or on a reset request.
-	if (magnet_detected && (!_zeroed || _zero_request)) {
+	if (magnet_detected && _zero_request) {
+		// Re-latch at the current position and save it, so the reference survives power cycles.
 		_zero_count = count;
 		_last_count = count;
 		_accum_counts = 0;
 		_zeroed = true;
 		_zero_request = false;
+		_saved_zero = count;
+
+		if (_param_zero != PARAM_INVALID) {
+			param_set(_param_zero, &_saved_zero);
+		}
+
+	} else if (magnet_detected && !_zeroed) {
+		_last_count = count;
+		_zeroed = true;
+
+		if (_saved_zero >= 0) {
+			// Absolute: start from the shortest-path offset to the saved reference.
+			_zero_count = (uint16_t)_saved_zero;
+			_accum_counts = (int16_t)((uint16_t)((count - _zero_count) << 4)) >> 4;
+
+		} else {
+			// No saved reference: the wing is assumed level at boot.
+			_zero_count = count;
+			_accum_counts = 0;
+		}
 	}
 
 	// Multi-turn accumulation: with the encoder geared up off the wing spar, the wing's travel
@@ -146,7 +177,7 @@ void AS5600::custom_method(const BusCLIArguments &cli)
 	case 1:
 		// Re-latch the level reference on the next sample (hold the wing level first).
 		_zero_request = true;
-		PX4_INFO("AS5600: zero reference will be re-latched on next sample");
+		PX4_INFO("AS5600: zero reference will be re-latched on next sample and saved to AS5600_ZERO");
 		break;
 
 	case 2:
@@ -230,7 +261,8 @@ void AS5600::regdump()
 void AS5600::print_status()
 {
 	I2CSPIDriverBase::print_status();
-	PX4_INFO("zeroed: %s, zero_count: %u", _zeroed ? "yes" : "no", _zero_count);
+	PX4_INFO("zeroed: %s, zero_count: %u (%s)", _zeroed ? "yes" : "no", _zero_count,
+		 _saved_zero >= 0 ? "saved AS5600_ZERO" : "latched at boot");
 	perf_print_counter(_sample_perf);
 	perf_print_counter(_comms_errors);
 }
@@ -242,7 +274,7 @@ void AS5600::print_usage()
 	PRINT_MODULE_USAGE_COMMAND("start");
 	PRINT_MODULE_USAGE_PARAMS_I2C_SPI_DRIVER(true, false);
 	PRINT_MODULE_USAGE_PARAMS_I2C_ADDRESS(AS5600_BASEADDR);
-	PRINT_MODULE_USAGE_COMMAND_DESCR("reset", "Re-latch the level (zero) reference (hold wing level)");
+	PRINT_MODULE_USAGE_COMMAND_DESCR("reset", "Re-latch the level (zero) reference and save it to AS5600_ZERO (hold wing level)");
 	PRINT_MODULE_USAGE_COMMAND_DESCR("regdump", "Print chip config/magnet registers and check them against driver assumptions");
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 }

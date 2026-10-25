@@ -36,10 +36,11 @@
  *
  * Driver for the AMS AS5600 12-bit magnetic rotary position sensor connected via I2C.
  *
- * Reports the wing tilt angle relative to a boot-time zero reference: the wing is assumed
- * to be level with the fuselage longitudinal (body-X) axis at startup, which defines 0 rad.
- * The first valid reading (magnet detected) latches that reference; all subsequent readings
- * are published relative to it, wrapped to [-PI, PI).
+ * Reports the wing tilt angle relative to a zero (wing level with the fuselage body-X axis) reference.
+ * If AS5600_ZERO holds a saved raw count, that is the reference and the angle is absolute from
+ * power-on (the first reading is wrapped to [-PI, PI) about it). Otherwise (AS5600_ZERO = -1) the
+ * wing is assumed level at startup and the first valid reading (magnet detected) latches the
+ * reference. `as5600 reset` re-latches at the current position and saves it to AS5600_ZERO.
  */
 
 #pragma once
@@ -51,6 +52,7 @@
 #include <drivers/device/i2c.h>
 #include <drivers/drv_hrt.h>
 #include <lib/perf/perf_counter.h>
+#include <lib/parameters/param.h>
 #include <uORB/PublicationMulti.hpp>
 #include <uORB/topics/sensor_encoder.h>
 
@@ -102,7 +104,9 @@ private:
 	uint16_t _zero_count{0};       // raw count latched as "wing level" (tilt = 0)
 	uint16_t _last_count{0};       // previous raw count, for the multi-turn step accumulation
 	int32_t _accum_counts{0};      // accumulated counts relative to the zero reference (multi-turn)
-	bool _zeroed{false};           // true once the boot-time reference has been latched
+	bool _zeroed{false};           // true once the zero reference has been applied
+	int32_t _saved_zero{-1};       // AS5600_ZERO at startup (-1 = latch at boot)
+	param_t _param_zero{PARAM_INVALID};
 	volatile bool _zero_request{false}; // set by the "reset" verb to re-latch the reference
 
 	perf_counter_t _sample_perf{perf_alloc(PC_ELAPSED, MODULE_NAME": read")};
