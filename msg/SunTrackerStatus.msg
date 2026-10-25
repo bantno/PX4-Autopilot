@@ -19,3 +19,11 @@ bool enabled            # SUN_TRK_EN
 bool debug_sweep        # SUN_DBG_SWP active (bench sweep; overrides sun tracking)
 bool pose_valid         # attitude + global position + UTC time all valid
 bool heading_valid      # EKF2 yaw is referenced/aligned (heading_var <= SUN_HDG_VAR_MAX)
+
+# Harvest during this tracking session, from the charge monitor's hardware ENERGY/CHARGE
+# accumulators (battery_charging; INA228). Counted only while actively tracking (not while
+# disabled, waiting for pose, parking or debug-sweeping). Reset when SUN_TRK_EN is enabled.
+float32 tracking_energy_wh  # energy into the charge path while tracking [Wh] (accumulator counts |P|)
+float32 tracking_charge_ah  # net charge into the battery while tracking [Ah]
+float32 tracking_time_s     # time spent actively tracking this session [s]
+bool charge_monitor_valid   # battery_charging is connected and fresh

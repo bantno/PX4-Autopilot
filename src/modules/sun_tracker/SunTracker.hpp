@@ -60,6 +60,7 @@
 #include <uORB/Publication.hpp>
 #include <uORB/Subscription.hpp>
 #include <uORB/SubscriptionInterval.hpp>
+#include <uORB/topics/battery_charging.h>
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/sensor_encoder.h>
 #include <uORB/topics/sensor_gps.h>
@@ -92,7 +93,11 @@ private:
 	void parameters_update();
 
 	// Publish the per-cycle diagnostics (sun_tracker_status) for logging/telemetry.
-	void publishStatus(bool enabled, bool debug_sweep, bool pose_valid, bool heading_valid);
+	// `tracking` is true only while actively pointing at the sun (gates the harvest tally).
+	void publishStatus(bool enabled, bool debug_sweep, bool pose_valid, bool heading_valid, bool tracking);
+
+	// Update the per-session harvest tally from the charge monitor's hardware accumulators.
+	void updateHarvest(bool enabled, bool tracking);
 
 	// Compute the desired wing tilt angle [rad] from the body-frame sun unit vector.
 	float desiredTiltFromSun(float sun_body_x, float sun_body_y, float sun_body_z) const;
@@ -102,6 +107,7 @@ private:
 	uORB::Subscription _vehicle_global_position_sub{ORB_ID(vehicle_global_position)};
 	uORB::Subscription _vehicle_local_position_sub{ORB_ID(vehicle_local_position)};
 	uORB::Subscription _sensor_gps_sub{ORB_ID(sensor_gps)};
+	uORB::Subscription _battery_charging_sub{ORB_ID(battery_charging)};
 
 	uORB::Publication<wing_tilt_setpoint_s> _wing_tilt_setpoint_pub{ORB_ID(wing_tilt_setpoint)};
 	uORB::Publication<sun_tracker_status_s> _sun_tracker_status_pub{ORB_ID(sun_tracker_status)};
@@ -122,6 +128,25 @@ private:
 	float _heading{NAN};
 	float _heading_var{NAN};
 	float _tilt_setpoint{NAN};
+
+	// Harvest tally. Tracking time is split into segments; each segment is the accumulator
+	// difference across it (no small-delta float summation), and closed segments sum into _harvest_*.
+	// An accumulator reset (energy going backwards) closes the segment and re-baselines.
+	bool _was_enabled{false};
+	bool _charge_valid{false};
+	float _last_energy_wh{0.f};
+	float _last_charge_ah{0.f};
+	hrt_abstime _last_charge_time{0};
+	bool _segment_active{false};
+	float _segment_energy0_wh{0.f};
+	float _segment_charge0_ah{0.f};
+	hrt_abstime _segment_start{0};
+	double _harvest_energy_wh{0.};
+	double _harvest_charge_ah{0.};
+	double _harvest_time_s{0.};
+	float _tracking_energy_wh{0.f}; // published session totals (for print_status)
+	float _tracking_charge_ah{0.f};
+	float _tracking_time_s{0.f};
 
 	perf_counter_t _loop_perf{perf_alloc(PC_ELAPSED, MODULE_NAME": cycle")};
 

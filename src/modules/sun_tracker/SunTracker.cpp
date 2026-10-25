@@ -129,7 +129,7 @@ void SunTracker::Run()
 		// Disabled: publish no setpoint — the wing_tilt controller stops the wing once our
 		// last setpoint goes stale.
 		_status = "disabled";
-		publishStatus(false, false, false, false);
+		publishStatus(false, false, false, false, false);
 		perf_end(_loop_perf);
 		return;
 	}
@@ -231,7 +231,7 @@ void SunTracker::Run()
 			_status = "wait: heading";
 		}
 
-		publishStatus(_param_sun_trk_en.get(), debug_sweep, pose_ok, heading_valid);
+		publishStatus(_param_sun_trk_en.get(), debug_sweep, pose_ok, heading_valid, false);
 		perf_end(_loop_perf);
 		return;
 	}
@@ -247,13 +247,67 @@ void SunTracker::Run()
 	sp.angle = tilt_setpoint;
 	_wing_tilt_setpoint_pub.publish(sp);
 
-	publishStatus(_param_sun_trk_en.get(), debug_sweep, true, heading_valid);
+	publishStatus(_param_sun_trk_en.get(), debug_sweep, true, heading_valid, !park && !debug_sweep);
 
 	perf_end(_loop_perf);
 }
 
-void SunTracker::publishStatus(bool enabled, bool debug_sweep, bool pose_valid, bool heading_valid)
+void SunTracker::updateHarvest(bool enabled, bool tracking)
 {
+	const hrt_abstime now = hrt_absolute_time();
+
+	// A new session starts each time tracking is enabled.
+	if (enabled && !_was_enabled) {
+		_harvest_energy_wh = 0.;
+		_harvest_charge_ah = 0.;
+		_harvest_time_s = 0.;
+		_segment_active = false;
+	}
+
+	battery_charging_s charging;
+
+	if (_battery_charging_sub.update(&charging) && charging.connected) {
+		if (_segment_active && (charging.energy_wh < _last_energy_wh)) {
+			// Accumulators were reset (reset_acc / driver restart): bank the segment so far and restart it.
+			_harvest_energy_wh += (double)(_last_energy_wh - _segment_energy0_wh);
+			_harvest_charge_ah += (double)(_last_charge_ah - _segment_charge0_ah);
+			_segment_energy0_wh = charging.energy_wh;
+			_segment_charge0_ah = charging.charge_ah;
+		}
+
+		_last_energy_wh = charging.energy_wh;
+		_last_charge_ah = charging.charge_ah;
+		_last_charge_time = charging.timestamp;
+	}
+
+	_charge_valid = (_last_charge_time != 0) && (now - _last_charge_time < 1_s);
+
+	if (tracking && _charge_valid && !_segment_active) {
+		_segment_active = true;
+		_segment_energy0_wh = _last_energy_wh;
+		_segment_charge0_ah = _last_charge_ah;
+		_segment_start = now;
+
+	} else if (_segment_active && (!tracking || !_charge_valid)) {
+		_segment_active = false;
+		_harvest_energy_wh += (double)(_last_energy_wh - _segment_energy0_wh);
+		_harvest_charge_ah += (double)(_last_charge_ah - _segment_charge0_ah);
+		_harvest_time_s += (double)(now - _segment_start) * 1e-6;
+	}
+
+	if (!enabled && _was_enabled && (_harvest_time_s > 0.)) {
+		// Session summary, also captured in the ULog message log.
+		PX4_INFO("session harvest: %.3f Wh, %.4f Ah over %.1f min tracking",
+			 _harvest_energy_wh, _harvest_charge_ah, _harvest_time_s / 60.);
+	}
+
+	_was_enabled = enabled;
+}
+
+void SunTracker::publishStatus(bool enabled, bool debug_sweep, bool pose_valid, bool heading_valid, bool tracking)
+{
+	updateHarvest(enabled, tracking);
+
 	sun_tracker_status_s status{};
 	status.timestamp = hrt_absolute_time();
 	status.sun_azimuth = _sun_az;
@@ -265,6 +319,25 @@ void SunTracker::publishStatus(bool enabled, bool debug_sweep, bool pose_valid, 
 	status.debug_sweep = debug_sweep;
 	status.pose_valid = pose_valid;
 	status.heading_valid = heading_valid;
+
+	double energy_wh = _harvest_energy_wh;
+	double charge_ah = _harvest_charge_ah;
+	double time_s = _harvest_time_s;
+
+	if (_segment_active) {
+		energy_wh += (double)(_last_energy_wh - _segment_energy0_wh);
+		charge_ah += (double)(_last_charge_ah - _segment_charge0_ah);
+		time_s += (double)(hrt_absolute_time() - _segment_start) * 1e-6;
+	}
+
+	_tracking_energy_wh = (float)energy_wh;
+	_tracking_charge_ah = (float)charge_ah;
+	_tracking_time_s = (float)time_s;
+
+	status.tracking_energy_wh = _tracking_energy_wh;
+	status.tracking_charge_ah = _tracking_charge_ah;
+	status.tracking_time_s = _tracking_time_s;
+	status.charge_monitor_valid = _charge_valid;
 	_sun_tracker_status_pub.publish(status);
 }
 
@@ -276,6 +349,9 @@ int SunTracker::print_status()
 	PX4_INFO("head:  yaw %6.1f deg  var %.4f rad^2 (max %.4f)", (double)(_heading * r2d),
 		 (double)_heading_var, (double)_param_sun_hdg_var_max.get());
 	PX4_INFO("tilt:  setpoint %6.1f deg (loop closed by wing_tilt)", (double)(_tilt_setpoint * r2d));
+	PX4_INFO("harvest (this session, while tracking): %.4f Wh, %.5f Ah over %.1f min%s",
+		 (double)_tracking_energy_wh, (double)_tracking_charge_ah,
+		 (double)(_tracking_time_s / 60.f), _charge_valid ? "" : " [no charge monitor]");
 	perf_print_counter(_loop_perf);
 	return 0;
 }
