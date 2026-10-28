@@ -2,14 +2,16 @@
 """Self-right demo with the AHAB camera feeds: runs the water_scenarios.py selfright sequence (inverted start,
 SR_OVERCTR 1.4, SELF_RIGHT mode + arm over MAVLink) and records the forward / wing / down cameras side by side.
 
-    python3 Tools/simulation/ahab_model/tools/selfright_video.py [--out FILE.webm] [--stills] [--gui]
+    python3 Tools/simulation/ahab_model/tools/selfright_video.py [--fps 30] [--out FILE.webm] [--stills] [--gui]
 
-Needs `make px4_sitl_default` and a model.sdf built with cameras (tools/build_model.py, not AHAB_CAMERAS=0).
-Writes a VP8 WebM (plays in browsers, VLC, mpv) at 30 fps in sim time, clocked by the forward camera, to
-Tools/simulation/ahab_model/videos/ by default, and prints the flip metrics from the session's ULog.
+Needs `make px4_sitl_default`. The model's cameras run at 10 Hz by default; for the recording the model is rebuilt
+with AHAB_CAMERA_HZ=--fps and the previous model.sdf is put back afterwards. Writes a VP8 WebM (plays in browsers,
+VLC, mpv) in sim time, clocked by the forward camera, to Tools/simulation/ahab_model/videos/ by default, and prints
+the flip metrics from the session's ULog.
 """
 import argparse
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -20,6 +22,7 @@ from gz.msgs10.image_pb2 import Image
 from gz.transport13 import Node
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+MODEL_SDF = os.path.join(HERE, '..', 'twin_tractor_seaplane', 'model.sdf')
 sys.path.insert(0, HERE)
 import water_scenarios as ws  # noqa: E402
 
@@ -33,9 +36,9 @@ PANELS = [('forward', '/world/ahab_lake/model/twin_tractor_seaplane_0/link/base_
 class Recorder:
     """Keeps the latest frame of each camera and writes one tiled frame per forward-camera frame."""
 
-    def __init__(self, path, stills_dir=None):
+    def __init__(self, path, fps, stills_dir=None):
         self.w = sum(p[2] for p in PANELS)
-        self.writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*'VP80'), 30, (self.w, H + 2 * BAR))
+        self.writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*'VP80'), fps, (self.w, H + 2 * BAR))
 
         if not self.writer.isOpened():
             raise RuntimeError('OpenCV cannot write VP8 WebM to %s' % path)
@@ -43,6 +46,7 @@ class Recorder:
         self.latest = [np.zeros((H, w, 3), np.uint8) for _, _, w in PANELS]
         self.lock = threading.Lock()
         self.stills_dir = stills_dir
+        self.fps = fps
         self.phase = 'spawned inverted'
         self.t0 = None
         self.frames = 0
@@ -79,8 +83,8 @@ class Recorder:
         self.writer.write(frame)
         self.frames += 1
 
-        if self.stills_dir and self.frames % 30 == 0:
-            cv2.imwrite(os.path.join(self.stills_dir, 't%03d.jpg' % (self.frames // 30)), frame)
+        if self.stills_dir and self.frames % self.fps == 0:
+            cv2.imwrite(os.path.join(self.stills_dir, 't%03d.jpg' % (self.frames // self.fps)), frame)
 
     def close(self):
         with self.lock:
@@ -88,8 +92,15 @@ class Recorder:
             self.writer.release()
 
 
+def restore(model_sdf):
+    # put back the model.sdf from before the recording (the 10 Hz default, or whatever was built)
+    with open(MODEL_SDF, 'w') as fp:
+        fp.write(model_sdf)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--fps', type=int, default=30, help='camera rate while recording = video frame rate')
     ap.add_argument('--out', help='output .webm (default: videos/selfright_cameras_<time>.webm)')
     ap.add_argument('--stills', action='store_true', help='also save one JPEG per sim second next to the video')
     ap.add_argument('--hold', type=float, default=15, help='wall seconds to record after SELF_RIGHT + arm')
@@ -105,8 +116,20 @@ def main():
         stills = os.path.splitext(out)[0] + '_stills'
         os.makedirs(stills, exist_ok=True)
 
-    rec = Recorder(out, stills)
-    sim = ws.Sim('selfright_video', pose='0,0,0.4,3.14159,0,0', gui=args.gui)
+    with open(MODEL_SDF) as fp:
+        model_sdf = fp.read()
+
+    subprocess.run([sys.executable, os.path.join(HERE, 'build_model.py')], check=True, stdout=subprocess.DEVNULL,
+                   env=dict(os.environ, AHAB_CAMERA_HZ=str(args.fps)))
+    rec = Recorder(out, args.fps, stills)
+
+    try:
+        sim = ws.Sim('selfright_video', pose='0,0,0.4,3.14159,0,0', gui=args.gui)
+
+    except BaseException:
+        restore(model_sdf)
+        raise
+
     node = Node()
 
     try:
@@ -127,12 +150,13 @@ def main():
 
         rec.close()
         sim.close()
+        restore(model_sdf)
 
     if rec.frames == 0:
         print('no camera frames: was model.sdf built with AHAB_CAMERAS=0?')
         return 1
 
-    print('video   %s (%d frames, %.1f s sim time)' % (out, rec.frames, rec.frames / 30))
+    print('video   %s (%d frames at %d fps, %.1f s sim time)' % (out, rec.frames, args.fps, rec.frames / args.fps))
 
     if stills:
         print('stills  %s' % stills)

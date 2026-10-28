@@ -61,21 +61,23 @@ BOX_BUOYANCY = os.environ.get('AHAB_BOX_BUOYANCY', '') == '1'
 SKID_THICKNESS = 0.002  # m; ground-contact skids under keel and floats (their Buoyancy-system volume is < 1 %)
 
 # --- cameras: (name, link, pose in the model frame (x y z roll pitch yaw; camera looks along its +x),
-#     horizontal FOV rad, width, height, Hz, gz topic). Placeholder optics, not a specific camera.
+#     horizontal FOV rad, width, height, gz topic). Placeholder optics, not a specific camera.
 # Only the forward camera keeps the default /world/../sensor/../image topic, so it is the one GstCameraSystem
 # streams to QGC (UDP 5600; it takes the first topic matching that pattern). The others publish on fixed topics.
-# AHAB_CAMERAS=0 leaves them out (speed runs).
+# AHAB_CAMERAS=0 leaves them out (speed runs); AHAB_CAMERA_HZ sets their rate (default 10 Hz, cheap enough to
+# leave on; tools/selfright_video.py rebuilds at 30 Hz while it records and restores the default after).
 CAMERAS = [
     # front face of the pylon (x 0.084, z 0.08-0.15 on the centreline), just under the wing leading edge
-    ('camera_forward', 'base_link', (0.090, 0, 0.110, 0, 0, 0), 1.74, 1280, 720, 30, None),
+    ('camera_forward', 'base_link', (0.090, 0, 0.110, 0, 0, 0), 1.74, 1280, 720, None),
     # under the left wing, mid-span outboard of the nacelle, looking inboard at the hull (13 deg down)
-    ('camera_wing', 'wing_link', (-0.040, 0.500, 0.112, 0, 0.23, -math.pi / 2), 1.74, 1280, 720, 30,
+    ('camera_wing', 'wing_link', (-0.040, 0.500, 0.112, 0, 0.23, -math.pi / 2), 1.74, 1280, 720,
      'ahab/camera_wing/image'),
     # survey: just under the keel (flat bottom at z -0.141, x 0.15-0.25), nadir, image top = forward
-    ('camera_down', 'base_link', (0.200, 0, -0.143, 0, math.pi / 2, 0), 1.2, 1280, 960, 30,
+    ('camera_down', 'base_link', (0.200, 0, -0.143, 0, math.pi / 2, 0), 1.2, 1280, 960,
      'ahab/camera_down/image'),
 ]
 CAMERAS_ON = os.environ.get('AHAB_CAMERAS', '1') != '0'
+CAMERA_HZ = float(os.environ.get('AHAB_CAMERA_HZ', 10))
 
 # --- propulsion (see docstring)
 MOTOR = dict(max_rot_velocity=1811, motor_constant=8.9e-06, moment_constant=0.0173)
@@ -153,7 +155,7 @@ def revolute(name, parent, child, axis, lo, hi, effort=10, damping=0.001):
 
 def camera(cam, origin):
     """Housing visual + camera sensor; the model-frame pose is shifted into the link whose origin is at origin."""
-    name, _, pose, hfov, w, h, hz, topic = cam
+    name, _, pose, hfov, w, h, topic = cam
     p = ' '.join(f(v) for v in [pose[0] - origin[0], pose[1] - origin[1], pose[2] - origin[2]] + list(pose[3:]))
     return '''      <visual name="%s_visual">
         <pose>%s</pose>
@@ -171,7 +173,7 @@ def camera(cam, origin):
         <update_rate>%s</update_rate>
         <visualize>true</visualize>
       </sensor>
-''' % (name, p, name, p, '        <topic>%s</topic>\n' % topic if topic else '', f(hfov), w, h, f(hz))
+''' % (name, p, name, p, '        <topic>%s</topic>\n' % topic if topic else '', f(hfov), w, h, f(CAMERA_HZ))
 
 
 def cameras(link, origin=(0, 0, 0)):

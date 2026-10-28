@@ -79,24 +79,29 @@ base_link   hull + V-tail + tilt drive + battery + avionics; IMU/baro/mag/GPS; A
 
 Three camera sensors (`CAMERAS` in `tools/build_model.py`; placeholder optics, no housing mass):
 
-| Sensor | Link | Where | Rate | gz topic |
+| Sensor | Link | Where | Image | gz topic |
 |---|---|---|---|---|
-| `camera_forward` | `base_link` | front face of the pylon, under the wing leading edge, looking forward | 30 Hz, 1280x720, 100 deg | default (`/world/ahab_lake/model/<model>/link/base_link/sensor/camera_forward/image`) |
-| `camera_wing` | `wing_link` (tilts with the wing) | under the left wing at y 0.50 m, looking inboard at the hull, 13 deg down | 30 Hz, 1280x720, 100 deg | `/ahab/camera_wing/image` |
-| `camera_down` | `base_link` | just under the keel at x 0.20 m, nadir, image top = forward | 30 Hz, 1280x960, 69 deg | `/ahab/camera_down/image` |
+| `camera_forward` | `base_link` | front face of the pylon, under the wing leading edge, looking forward | 1280x720, 100 deg | default (`/world/ahab_lake/model/<model>/link/base_link/sensor/camera_forward/image`) |
+| `camera_wing` | `wing_link` (tilts with the wing) | under the left wing at y 0.50 m, looking inboard at the hull, 13 deg down | 1280x720, 100 deg | `/ahab/camera_wing/image` |
+| `camera_down` | `base_link` | just under the keel at x 0.20 m, nadir, image top = forward | 1280x960, 69 deg | `/ahab/camera_down/image` |
 
 Only the forward camera uses the default topic pattern, so it is the one the world's `GstCameraSystem` streams to
 QGC (UDP 5600). The down camera is underwater while the aircraft floats, and the lake is a flat plane, so there is
 nothing to survey yet.
 
-Rendering is not free even with no subscribers (unthrottled gz server, model floating, 2026-10-14):
-5.4x real time without cameras, 4.0x with cameras and no subscribers, 2.2x with all three subscribed.
+All three run at 10 Hz (`AHAB_CAMERA_HZ` in `build_model.py` changes it). Cost, unthrottled gz server with the model
+floating (2026-10-14): 5.4x real time without cameras; at 10 Hz 5.3x with no subscribers and 3.6x with all three
+subscribed; at 30/15/5 Hz (forward/wing/down) 4.0x and 2.2x.
+
 Self-right demo video (inverted start → SELF_RIGHT + arm, all three feeds tiled, flip metrics printed):
 
 ```bash
 python3 Tools/simulation/ahab_model/tools/selfright_video.py            # -> videos/selfright_cameras_<time>.webm
 python3 Tools/simulation/ahab_model/tools/selfright_video.py --stills   # + one JPEG per sim second
 ```
+
+It rebuilds the model with the cameras at `--fps` (default 30) for the recording and restores the previous
+`model.sdf` when it finishes.
 
 For speed runs, regenerate with `AHAB_CAMERAS=0 python3 tools/build_model.py` (and back without it afterwards).
 

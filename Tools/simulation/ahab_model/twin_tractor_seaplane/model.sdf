@@ -147,7 +147,7 @@
           <clip><near>0.02</near><far>3000</far></clip>
         </camera>
         <always_on>1</always_on>
-        <update_rate>30</update_rate>
+        <update_rate>10</update_rate>
         <visualize>true</visualize>
       </sensor>
       <visual name="camera_down_visual">
@@ -164,7 +164,7 @@
           <clip><near>0.02</near><far>3000</far></clip>
         </camera>
         <always_on>1</always_on>
-        <update_rate>30</update_rate>
+        <update_rate>10</update_rate>
         <visualize>true</visualize>
       </sensor>
     </link>
@@ -211,7 +211,7 @@
           <clip><near>0.02</near><far>3000</far></clip>
         </camera>
         <always_on>1</always_on>
-        <update_rate>30</update_rate>
+        <update_rate>10</update_rate>
         <visualize>true</visualize>
       </sensor>
     </link>
